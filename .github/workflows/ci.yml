@@ -20,6 +20,8 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
     defaults:
       run:
         working-directory: backend
