@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [127.0276, 37.4979] },
+      "properties": {
+        "charger_id": "CFL-0001",
+        "charger_name": "Gangnam Station Fast Charger",
+        "operator": "Korea Electric Power",
+        "connector_type": "DC Combo",
+        "max_kw": 150,
+        "address": "Seoul Gangnam-gu Gangnam-daero",
+        "status": "available",
+        "status_updated_at": "2026-05-19T08:00:00+09:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [126.978, 37.5665] },
+      "properties": {
+        "charger_id": "CFL-0002",
+        "charger_name": "City Hall Public Charger",
+        "operator": "Seoul Energy",
+        "connector_type": "AC Type 2",
+        "max_kw": 22,
+        "address": "Seoul Jung-gu Sejong-daero",
+        "status": "occupied",
+        "status_updated_at": "2026-05-19T08:03:00+09:00"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [126.5312, 33.4996] },
+      "properties": {
+        "charger_id": "CFL-0003",
+        "charger_name": "Jeju Airport Charger",
+        "operator": "Jeju EV Service",
+        "connector_type": "DC Combo",
+        "max_kw": 100,
+        "address": "Jeju-si Airport-ro",
+        "status": "unknown",
+        "status_updated_at": "2026-05-19T07:55:00+09:00"
+      }
+    }
+  ]
+}

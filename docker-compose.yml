@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: chargeflow
+      POSTGRES_USER: chargeflow
+      POSTGRES_PASSWORD: chargeflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - chargeflow-postgres:/var/lib/postgresql/data
+      - ./backend/app/db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+
+volumes:
+  chargeflow-postgres:
