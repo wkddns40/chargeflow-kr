@@ -23,6 +23,13 @@ class StationFeature(BaseModel):
     properties: StationProperties
 
 
+class StationCollectionMeta(BaseModel):
+    count: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    source: str
+
+
 class StationFeatureCollection(BaseModel):
     type: str = "FeatureCollection"
     features: list[StationFeature]
+    meta: StationCollectionMeta | None = None

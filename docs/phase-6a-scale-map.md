@@ -45,7 +45,7 @@ useStations()
 Current limitation:
 
 - Demo fetch can still load a full GeoJSON file.
-- `/api/stations` has bbox shape but no automated benchmark fixture yet.
+- `/api/stations` serves the synthetic 7k fixture through a bbox-filtered dev path.
 - No MVT tile endpoint exists yet.
 - No 7k benchmark result exists yet.
 
@@ -106,7 +106,7 @@ Allowed:
 Endpoint:
 
 ```text
-GET /api/stations?bbox=west,south,east,north&limit=1000
+GET /api/stations?bbox=west,south,east,north&limit=2000
 ```
 
 Rules:
@@ -114,7 +114,7 @@ Rules:
 - Coordinates use EPSG:4326 longitude/latitude.
 - `bbox` is required for production-scale queries.
 - Boundary points are included.
-- `limit` has a safe default and hard maximum.
+- `limit` defaults to 2,000 and has a 7,000 hard maximum.
 - Invalid bbox returns HTTP 400 with clear error JSON.
 - Response remains a GeoJSON `FeatureCollection` for Phase 6A JSON APIs.
 - Later MVT endpoints can serve display tiles while JSON endpoints serve selected-station details.
@@ -127,9 +127,8 @@ Response shape:
   "features": [],
   "meta": {
     "count": 0,
-    "limit": 1000,
-    "source": "synthetic-7k",
-    "snapshot_date": "2026-05-19"
+    "limit": 2000,
+    "source": "synthetic-stations-7k"
   }
 }
 ```
