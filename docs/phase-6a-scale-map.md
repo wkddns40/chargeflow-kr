@@ -2,7 +2,7 @@
 
 ## Scope
 
-Phase 6A makes ChargeFlow KR credible for a 10,000-station Korean charger map. It keeps the current MapLibre and deck.gl rendering path, then moves production data access toward PostGIS-backed viewport APIs and later vector tiles.
+Phase 6A makes ChargeFlow KR credible for a 7,000-station Korean charger map. It keeps the current MapLibre and deck.gl rendering path, then moves production data access toward PostGIS-backed viewport APIs and later vector tiles.
 
 Out of scope:
 
@@ -47,7 +47,7 @@ Current limitation:
 - Demo fetch can still load a full GeoJSON file.
 - `/api/stations` has bbox shape but no automated benchmark fixture yet.
 - No MVT tile endpoint exists yet.
-- No 10k benchmark result exists yet.
+- No 7k benchmark result exists yet.
 
 ## Target Architecture
 
@@ -72,11 +72,11 @@ Rendering rules:
 - Client filtering is allowed only for small already-loaded viewport results.
 - Large dataset filtering belongs in SQL, bbox APIs, or GPU-friendly layer props.
 
-## 10k Benchmark Target
+## 7k Benchmark Target
 
 First benchmark target:
 
-- Generate 10,000 synthetic station features.
+- Generate 7,000 synthetic station features.
 - Load station rows into local PostGIS or a fixture-driven dev path.
 - Query by bbox with `limit`.
 - Render returned viewport results through deck.gl.
@@ -128,7 +128,7 @@ Response shape:
   "meta": {
     "count": 0,
     "limit": 1000,
-    "source": "synthetic-10k",
+    "source": "synthetic-7k",
     "snapshot_date": "2026-05-19"
   }
 }
@@ -136,7 +136,7 @@ Response shape:
 
 ## Synthetic Data Generator Contract
 
-Add a generator in a later Phase 6A task:
+Generator path:
 
 ```text
 backend/scripts/generate_synthetic_stations.py
@@ -144,10 +144,11 @@ backend/scripts/generate_synthetic_stations.py
 
 Required behavior:
 
-- Default count: 10,000.
+- Default count: 7,000.
 - Fixed seed for deterministic output.
 - CLI flags: `--count`, `--seed`, `--out`.
-- Output defaults to `backend/fixtures/synthetic-stations-10k.geojson`.
+- Output defaults to `backend/fixtures/synthetic-stations-7k.geojson`.
+- The generated 7k fixture is committed for repeatable local benchmarks.
 - Coordinates stay inside South Korea bounds.
 - Regional distribution:
   - Seoul metro: 50%.
@@ -155,6 +156,13 @@ Required behavior:
   - Jeju: 15%.
 - Properties stay compatible with `frontend/src/types/charger.ts`.
 - `frontend/public/sample-chargers.json` is never overwritten.
+
+Generate and validate:
+
+```powershell
+python backend\scripts\generate_synthetic_stations.py --count 7000 --seed 42
+python -m json.tool backend\fixtures\synthetic-stations-7k.geojson > $null
+```
 
 ## Login-Free Dataset Import Contract
 
@@ -205,7 +213,7 @@ Commands:
 
 ```powershell
 Test-Path D:\fleet\chargeflow-kr\docs\phase-6a-scale-map.md
-Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6a-scale-map.md -Pattern "10k|DOM|bbox|deck.gl|login-free"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6a-scale-map.md -Pattern "7k|DOM|bbox|deck.gl|login-free"
 cd D:\fleet\chargeflow-kr\frontend
 npm run build
 cd D:\fleet\chargeflow-kr\backend

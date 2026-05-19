@@ -13,7 +13,7 @@ router = APIRouter(tags=["stations"])
 def list_stations(
     connection: Annotated[psycopg.Connection, Depends(get_connection)],
     bbox: Annotated[str | None, Query(description="west,south,east,north in EPSG:4326")] = None,
-    limit: Annotated[int, Query(ge=1, le=10000)] = 1000,
+    limit: Annotated[int, Query(ge=1, le=7000)] = 1000,
 ) -> dict:
     params: dict[str, object] = {"limit": limit}
     where = ""
