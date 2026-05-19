@@ -41,9 +41,15 @@ npm run dev
 
 Frontend defaults to `VITE_DEMO_MODE=true`, reading `frontend/public/sample-chargers.json`.
 
+Generate the synthetic benchmark fixture:
+
+```bash
+python backend/scripts/generate_synthetic_stations.py --count 7000 --seed 42
+```
+
 ## Success Targets
 
-- Render 10,000 chargers interactively.
+- Render 7,000 chargers interactively.
 - Keep initial map load under 3 seconds on a mid-range laptop.
 - Support viewport queries before full dataset downloads.
 - Preserve source and snapshot metadata for availability answers.
