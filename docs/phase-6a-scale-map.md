@@ -24,9 +24,10 @@ Current repo state:
 
 - `frontend/src/components/map/MapShell.tsx` owns the map-first UI. It renders `DeckGL`, `react-map-gl/maplibre` `Map`, and one deck.gl `ScatterplotLayer`.
 - `frontend/src/hooks/useStations.ts` chooses demo data from `/sample-chargers.json` unless `VITE_DEMO_MODE=false`, then fetches `${VITE_API_BASE_URL}/api/stations`.
+- `frontend/src/hooks/useViewportStations.ts` is the experimental bbox API path behind `VITE_ENABLE_VIEWPORT_STATIONS=true`.
 - `frontend/src/types/charger.ts` defines the current `ChargerFeature` GeoJSON contract used by the frontend and backend response.
 - `frontend/public/sample-chargers.json` is a tiny static smoke fixture. It is demo-only and must not become the production data path.
-- `backend/app/api/stations.py` already sketches `GET /api/stations` with optional `bbox=west,south,east,north` and `limit`.
+- `backend/app/api/stations.py` serves `GET /api/stations` with required `bbox=west,south,east,north` and `limit`.
 - `backend/app/db/schema.sql` creates `stations`, `connectors`, and `status_events` with a GiST index on `stations.geom`.
 - `docker-compose.yml` starts local PostGIS and loads `backend/app/db/schema.sql`.
 - `docs/ARCHITECTURE.md` documents the current MVP and target station API / MVT / typed search direction.
@@ -40,6 +41,12 @@ useStations()
   -> deck.gl ScatterplotLayer
   -> <DeckGL layers={[stationLayer]}>
   -> <Map mapStyle={OpenFreeMap Liberty}>
+
+VITE_ENABLE_VIEWPORT_STATIONS=true
+  -> useViewportStations()
+  -> /api/stations?bbox=...&limit=...
+  -> MapShell valid station memo
+  -> deck.gl ScatterplotLayer
 ```
 
 Current limitation:
@@ -100,6 +107,27 @@ Allowed:
 - deck.gl `IconLayer`.
 - deck.gl `MVTLayer`.
 - deck.gl aggregation layers such as `ScreenGridLayer`, `HeatmapLayer`, or `HexagonLayer`.
+
+## Deck.gl Smoke Checklist
+
+Last checked: 2026-05-19.
+
+- Default flags keep `frontend/public/sample-chargers.json` as the static smoke path.
+- `VITE_ENABLE_VIEWPORT_STATIONS=true` switches layer input to `/api/stations?bbox=...&limit=...` results.
+- The 7k fixture is served only by the backend; frontend source does not import or fetch `synthetic-stations-7k.geojson`.
+- Station rendering remains `MapShell` -> deck.gl `ScatterplotLayer`; no DOM marker implementation is present.
+- Verification commands:
+  - `rg -n "Marker|document\.createElement|appendChild" frontend/src --glob "*.tsx"`.
+  - `rg -n "synthetic-stations-7k" frontend/src frontend/public`.
+  - `npm run test`.
+  - `npm run typecheck`.
+  - `npm run build`.
+  - `python -m pytest`.
+- 2026-05-19 results:
+  - DOM marker search returned no frontend TSX matches.
+  - Frontend source/static search returned no `synthetic-stations-7k` fixture reference.
+  - Default Vite smoke served `/sample-chargers.json` as a `FeatureCollection` with 3 features.
+  - Experimental backend smoke returned 50 bbox-filtered features from `synthetic-stations-7k`.
 
 ## Bbox API Contract
 

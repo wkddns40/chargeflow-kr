@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import DeckGL from '@deck.gl/react';
 import { Map } from 'react-map-gl/maplibre';
 import { ScatterplotLayer } from '@deck.gl/layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { ChargerFeature, ViewState } from '../../types/charger';
 import { INITIAL_VIEW_STATE, MAP_STYLE_URL } from '../../constants/viewport';
-import { getValidData } from '../../lib/geo';
+import { getValidData, type ViewportSize } from '../../lib/geo';
+import { isViewportStationsFlagEnabled, useViewportStations } from '../../hooks/useViewportStations';
 
 type MapShellProps = {
   stations: ChargerFeature[];
@@ -19,9 +20,35 @@ const STATUS_COLORS: Record<ChargerFeature['properties']['status'], [number, num
 };
 
 export function MapShell({ stations }: MapShellProps) {
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
+  const [viewportSize, setViewportSize] = useState<ViewportSize>({ width: 1024, height: 768 });
   const [selected, setSelected] = useState<ChargerFeature | null>(null);
-  const validStations = useMemo(() => getValidData(stations), [stations]);
+  const viewportStationsEnabled = isViewportStationsFlagEnabled(import.meta.env.VITE_ENABLE_VIEWPORT_STATIONS);
+  const viewportStations = useViewportStations({
+    viewState,
+    viewport: viewportSize,
+    enabled: viewportStationsEnabled,
+  });
+  const layerStations = viewportStations.enabled ? viewportStations.stations : stations;
+  const validStations = useMemo(() => getValidData(layerStations), [layerStations]);
+  const dataMode = viewportStations.enabled ? 'Viewport API' : import.meta.env.VITE_DEMO_MODE === 'false' ? 'API' : 'Static demo';
+
+  useEffect(() => {
+    if (!viewportStationsEnabled || !shellRef.current) return;
+
+    const updateViewportSize = () => {
+      const rect = shellRef.current?.getBoundingClientRect();
+      if (rect && rect.width > 0 && rect.height > 0) {
+        setViewportSize({ width: rect.width, height: rect.height });
+      }
+    };
+
+    updateViewportSize();
+    const observer = new ResizeObserver(updateViewportSize);
+    observer.observe(shellRef.current);
+    return () => observer.disconnect();
+  }, [viewportStationsEnabled]);
 
   const stationLayer = useMemo(
     () =>
@@ -39,7 +66,7 @@ export function MapShell({ stations }: MapShellProps) {
   );
 
   return (
-    <div className="map-shell">
+    <div ref={shellRef} className="map-shell">
       <DeckGL
         layers={[stationLayer]}
         viewState={viewState}
@@ -59,7 +86,7 @@ export function MapShell({ stations }: MapShellProps) {
           </div>
           <div>
             <dt>Data mode</dt>
-            <dd>{import.meta.env.VITE_DEMO_MODE === 'false' ? 'API' : 'Static demo'}</dd>
+            <dd>{dataMode}</dd>
           </div>
         </dl>
       </aside>
