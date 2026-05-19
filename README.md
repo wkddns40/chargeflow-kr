@@ -72,10 +72,10 @@ python backend/scripts/generate_synthetic_stations.py --count 7000 --seed 42
 ## Success Targets
 
 - Render 7,000 chargers interactively.
-- Keep initial map load under 3 seconds on a mid-range laptop.
+- Keep initial map load under 3 seconds.
 - Support viewport queries before full dataset downloads.
 - Preserve source and snapshot metadata for availability answers.
 
 ## Origin
 
-Selected map, type, and geo utility code was migrated from [EV-STATION](https://github.com/wkddns40/ev-station). EV-STATION remains the portfolio dashboard; ChargeFlow KR is the product-scale successor.
+Selected map, type, and geo utility code was migrated from [EV-STATION](https://github.com/wkddns40/ev-station). EV-STATION remains the dashboard; ChargeFlow KR is the product-scale successor.

@@ -72,10 +72,10 @@ python backend/scripts/generate_synthetic_stations.py --count 7000 --seed 42
 ## 성공 목표
 
 - 충전소 7,000개를 인터랙티브하게 렌더링.
-- 중급 노트북 기준 초기 지도 로드 3초 미만.
+- 초기 지도 로드 평균 3초 미만.
 - 전체 dataset 다운로드 전에 viewport query 지원.
 - 충전 가능 여부 답변에서 source와 snapshot metadata 보존.
 
 ## 출처
 
-일부 map, type, geo utility code는 [EV-STATION](https://github.com/wkddns40/ev-station)에서 이식했습니다. EV-STATION은 portfolio dashboard로 유지하고, ChargeFlow KR은 product-scale successor로 진행합니다.
+일부 map, type, geo utility code는 [EV-STATION](https://github.com/wkddns40/ev-station)에서 이식했습니다. EV-STATION은 dashboard로 유지하고, ChargeFlow KR은 product-scale successor로 진행합니다.
