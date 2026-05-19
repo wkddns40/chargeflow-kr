@@ -128,6 +128,7 @@ Last checked: 2026-05-19.
   - Frontend source/static search returned no `synthetic-stations-7k` fixture reference.
   - Default Vite smoke served `/sample-chargers.json` as a `FeatureCollection` with 3 features.
   - Experimental backend smoke returned 50 bbox-filtered features from `synthetic-stations-7k`.
+  - Detailed benchmark record: `docs/benchmarks/phase-6a-7k.md`.
 
 ## Bbox API Contract
 
