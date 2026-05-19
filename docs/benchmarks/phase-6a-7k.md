@@ -55,7 +55,10 @@ Experimental path:
 - `VITE_ENABLE_VIEWPORT_STATIONS=true` routes `MapShell` layer data through `useViewportStations`.
 - The bbox API returned 50 features from `synthetic-stations-7k` in local smoke.
 - `MapShell` still renders stations through deck.gl `ScatterplotLayer`.
-- Browser screenshot refresh is deferred to 1.9 if README-visible UI state changes.
+- 1.9 README review added live-demo and feature wording without screenshot references.
+- No screenshot files were created or replaced because no existing README screenshot paths exist and the default user-visible demo remains the 3-feature static smoke path.
+- 1.9 local demo smoke confirmed default Vite still serves `sample-chargers.json` with 3 features, and experimental backend smoke still returns 50 bbox-filtered features from `synthetic-stations-7k`.
+- ABRP-inspired design check remains documented in `docs/phase-6a-scale-map.md`; no ABRP-owned assets, screenshots, logos, or proprietary copy were added.
 
 ## DOM Marker Ban
 
