@@ -114,6 +114,8 @@ Future import code should:
 - Emit row-level validation errors for malformed data.
 - Keep import runs repeatable and deterministic for the same input file.
 
+Status history and rollup design lives in `docs/phase-6b-file-status.md`.
+
 ## Verification
 
 Commands:
