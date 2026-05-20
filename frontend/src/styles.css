@@ -21,7 +21,8 @@ body {
 }
 
 .summary-panel,
-.detail-panel {
+.detail-panel,
+.assistant-panel {
   position: absolute;
   z-index: 2;
   width: min(360px, calc(100vw - 32px));
@@ -40,6 +41,130 @@ body {
 .detail-panel {
   right: 16px;
   bottom: 16px;
+}
+
+.assistant-panel {
+  top: 16px;
+  right: 16px;
+  display: grid;
+  max-height: calc(100vh - 32px);
+  gap: 14px;
+  overflow: auto;
+}
+
+.assistant-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assistant-heading button,
+.assistant-form button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.assistant-heading button {
+  padding: 0 12px;
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.assistant-form {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.assistant-form label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.assistant-form span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assistant-form input,
+.assistant-form select {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+  min-height: 36px;
+  padding: 7px 9px;
+}
+
+.assistant-form button[type="submit"] {
+  background: #111827;
+  color: #ffffff;
+}
+
+.assistant-form button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.assistant-message {
+  margin: 0;
+  color: #475569;
+  font-size: 14px;
+}
+
+.assistant-results {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-result-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assistant-results ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assistant-results li {
+  display: grid;
+  gap: 3px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 9px;
+}
+
+.assistant-results strong,
+.assistant-results span {
+  overflow-wrap: anywhere;
+}
+
+.assistant-results span {
+  color: #475569;
+  font-size: 12px;
 }
 
 .detail-panel button {
@@ -106,4 +231,37 @@ dd {
   min-height: 100vh;
   place-items: center;
   color: #f8fafc;
+}
+
+@media (max-width: 760px) {
+  .summary-panel,
+  .assistant-panel,
+  .detail-panel {
+    width: calc(100vw - 24px);
+    padding: 14px;
+  }
+
+  .summary-panel {
+    top: 12px;
+    left: 12px;
+  }
+
+  .assistant-panel {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    max-height: 52vh;
+  }
+
+  .assistant-enabled .summary-panel {
+    display: none;
+  }
+
+  .detail-panel {
+    top: 12px;
+    right: 12px;
+    bottom: auto;
+    max-height: calc(48vh - 24px);
+    overflow: auto;
+  }
 }
