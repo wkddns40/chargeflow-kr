@@ -21,10 +21,14 @@ Deferred:
 
 - Provider selection and model prompts.
 - External LLM API credentials.
-- Backend `POST /api/search/chargers` implementation.
-- Frontend assistant panel.
 - Route planning.
 - Weather, traffic, pricing, and reservation integrations.
+
+## Frontend Shell Status
+
+The first frontend shell is feature-flagged with `VITE_ENABLE_LLM_SEARCH=false` by default.
+
+When enabled, the panel submits a typed charger search command to the local backend endpoint. It does not call a real LLM provider, does not send prompts to an external service, and does not infer facts outside the backend response.
 
 ## Responsibilities
 
