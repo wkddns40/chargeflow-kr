@@ -8,12 +8,16 @@ import pytest
 from stop_optimizer import (
     AvailabilityScore,
     AvailabilityStatus,
+    FreshnessLabel,
     RELIABILITY_SCORE_WEIGHT,
+    STALE_AVAILABILITY_PENALTY,
     StopCandidate,
+    UNKNOWN_FRESHNESS_PENALTY,
     estimate_reachable_segment,
     score_availability,
     score_charging_power,
     score_reliability,
+    score_stale_penalty,
 )
 from vehicle_profile import VehicleProfile
 
@@ -379,6 +383,100 @@ def test_score_reliability_rejects_invalid_availability_score(score: object) -> 
                 reasons=("fresh_availability",),
                 fallback_only=False,
             ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("freshness_label", "reasons"),
+    [
+        ("fresh", ("fresh_availability",)),
+        ("aging", ("aging_availability",)),
+    ],
+)
+def test_score_stale_penalty_keeps_fresh_and_aging_neutral(
+    freshness_label: FreshnessLabel,
+    reasons: tuple[str, ...],
+) -> None:
+    stale_penalty = score_stale_penalty(
+        AvailabilityScore(
+            freshness_label=freshness_label,
+            score=1.0,
+            reasons=reasons,  # type: ignore[arg-type]
+            fallback_only=False,
+        )
+    )
+
+    assert stale_penalty.penalty == 0.0
+    assert stale_penalty.adjustment == 0.0
+    assert stale_penalty.reasons == ()
+    assert stale_penalty.fallback_only is False
+
+
+def test_score_stale_penalty_applies_stale_adjustment() -> None:
+    stale_penalty = score_stale_penalty(
+        AvailabilityScore(
+            freshness_label="stale",
+            score=0.45,
+            reasons=("stale_availability_penalty",),
+            fallback_only=False,
+        )
+    )
+
+    assert stale_penalty.freshness_label == "stale"
+    assert stale_penalty.penalty == STALE_AVAILABILITY_PENALTY
+    assert stale_penalty.adjustment == -STALE_AVAILABILITY_PENALTY
+    assert stale_penalty.reasons == ("stale_availability_penalty",)
+    assert stale_penalty.fallback_only is False
+
+
+def test_score_stale_penalty_applies_unknown_freshness_adjustment() -> None:
+    stale_penalty = score_stale_penalty(
+        AvailabilityScore(
+            freshness_label="unknown",
+            score=0.4,
+            reasons=("unknown_availability_penalty",),
+            fallback_only=False,
+        )
+    )
+
+    assert stale_penalty.freshness_label == "unknown"
+    assert stale_penalty.penalty == UNKNOWN_FRESHNESS_PENALTY
+    assert stale_penalty.adjustment == -UNKNOWN_FRESHNESS_PENALTY
+    assert stale_penalty.reasons == ("unknown_availability_penalty",)
+    assert stale_penalty.fallback_only is False
+
+
+def test_score_stale_penalty_preserves_fallback_only() -> None:
+    stale_penalty = score_stale_penalty(
+        AvailabilityScore(
+            freshness_label="stale",
+            score=0.0,
+            reasons=("offline_fallback",),
+            fallback_only=True,
+        )
+    )
+
+    assert stale_penalty.penalty == STALE_AVAILABILITY_PENALTY
+    assert stale_penalty.adjustment == -STALE_AVAILABILITY_PENALTY
+    assert stale_penalty.fallback_only is True
+    assert stale_penalty.to_dict() == {
+        "freshness_label": "stale",
+        "penalty": STALE_AVAILABILITY_PENALTY,
+        "adjustment": -STALE_AVAILABILITY_PENALTY,
+        "reasons": ["stale_availability_penalty"],
+        "fallback_only": True,
+    }
+
+
+def test_score_stale_penalty_rejects_invalid_freshness_label() -> None:
+    with pytest.raises(ValueError, match="freshness_label"):
+        score_stale_penalty(
+            AvailabilityScore(
+                freshness_label=cast(FreshnessLabel, "future"),
+                score=0.4,
+                reasons=("unknown_availability_penalty",),
+                fallback_only=False,
+            )
         )
 
 
