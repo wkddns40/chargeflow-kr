@@ -363,6 +363,16 @@ segment_reachable = segment_estimated_arrival_soc >= vehicle.target_arrival_soc
 
 The backend implementation entry point is `estimate_reachable_segment(candidate, vehicle)`. It rejects non-finite or negative `candidate.route_distance_km`, then returns the full energy, SoC delta, estimated arrival SoC, target floor, and reachable boolean.
 
+### Target arrival SoC rule
+
+`vehicle.target_arrival_soc` is a hard safety floor for route and candidate reachability checks. A segment is reachable when `estimated_arrival_soc >= target_arrival_soc`; equality is reachable.
+
+The optimizer must not reject a vehicle profile only because `target_arrival_soc` is greater than `current_soc`. That case represents an already-under-target trip state and should make route/candidate segments unreachable unless a later fallback rule intentionally includes them with `unreachable_fallback`.
+
+`target_arrival_soc` is not a charging target, reserve recommendation, or dynamic route policy. It is a single deterministic threshold used by Phase 6D until a later task introduces richer charger-arrival and destination-arrival SoC controls.
+
+The optimizer reachability function still validates `vehicle.current_soc` and `vehicle.target_arrival_soc` as finite values in `[0.0, 1.0]` at its boundary. This duplicates the vehicle profile guard intentionally so later callers cannot bypass the SoC floor rule with a malformed object.
+
 ## Charger Penalty Rules
 
 Stop optimizer scoring starts from a local candidate list and applies deterministic penalties. The exact numeric weights belong in 4.4, but the rule order is defined here.
