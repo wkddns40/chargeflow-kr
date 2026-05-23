@@ -75,7 +75,7 @@ def test_preferred_connector_types_accept_json_style_list() -> None:
     assert profile.to_dict()["preferred_connector_types"] == ["DC Combo", "CHAdeMO"]
 
 
-@pytest.mark.parametrize("battery_kwh", [0, -1, float("inf"), "77.4", True])
+@pytest.mark.parametrize("battery_kwh", [0, -1, float("nan"), float("inf"), "77.4", True])
 def test_invalid_battery_kwh_rejects(battery_kwh: object) -> None:
     with pytest.raises(VehicleProfileError, match="battery_kwh"):
         VehicleProfile(
@@ -88,7 +88,7 @@ def test_invalid_battery_kwh_rejects(battery_kwh: object) -> None:
         )
 
 
-@pytest.mark.parametrize("consumption_kwh_per_km", [0, -0.1, float("nan"), "0.18", False])
+@pytest.mark.parametrize("consumption_kwh_per_km", [0, -0.1, float("nan"), float("inf"), "0.18", False, True])
 def test_invalid_consumption_kwh_per_km_rejects(consumption_kwh_per_km: object) -> None:
     with pytest.raises(VehicleProfileError, match="consumption_kwh_per_km"):
         VehicleProfile(
@@ -119,9 +119,13 @@ def test_invalid_max_charging_kw_rejects(max_charging_kw: object) -> None:
     [
         (),
         [],
+        None,
         "DC Combo",
+        b"DC Combo",
         ("",),
+        ("   ",),
         (3,),
+        (b"DC Combo",),
         ("Tesla NACS",),
         ("DC Combo", "Tesla NACS"),
     ],
@@ -144,10 +148,12 @@ def test_invalid_preferred_connector_types_rejects(preferred_connector_types: ob
         ("current_soc", -0.01),
         ("current_soc", 1.01),
         ("current_soc", float("nan")),
+        ("current_soc", float("inf")),
         ("current_soc", "0.64"),
         ("current_soc", False),
         ("target_arrival_soc", -0.01),
         ("target_arrival_soc", 1.01),
+        ("target_arrival_soc", float("nan")),
         ("target_arrival_soc", float("inf")),
         ("target_arrival_soc", "0.15"),
         ("target_arrival_soc", True),
