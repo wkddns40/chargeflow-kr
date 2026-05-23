@@ -401,6 +401,51 @@ Examples for a vehicle with `max_charging_kw=180`:
 | 150 | 150 | `0.833333...` | `high_power` |
 | 50 | 50 | `0.277777...` | `low_power_penalty` |
 
+### Imported availability score
+
+Availability is a bounded score component based only on the latest imported file snapshot state. It is not live polling and must not imply real-time charger availability.
+
+Status-event selection happens before stop optimizer scoring:
+
+- Select the newest valid status event per connector from imported snapshots.
+- Use `observed_at` as `candidate.status_updated_at` when present.
+- If the source only has a snapshot-level timestamp, normalize it before candidate construction.
+- If no usable timestamp exists, keep `candidate.status_updated_at=null` and treat freshness as `unknown`.
+- If the timestamp is in the future relative to the route planner reference time, treat freshness as `unknown`.
+- Break ties deterministically with the same precedence used by Phase 6B rollups: newer `observed_at`, then newer import receive time, then connector id.
+
+Freshness labels reuse Phase 6B rules. Age is measured against the route planner reference time, using the request clock in production and a fixed clock in tests.
+
+| Label | Age from `candidate.status_updated_at` |
+| --- | --- |
+| `fresh` | 0-2 days |
+| `aging` | More than 2 days and up to 7 days |
+| `stale` | More than 7 days |
+| `unknown` | Missing or unusable timestamp |
+
+Availability score table:
+
+| `candidate.status` | Freshness | `availability_score` | Reasons | Inclusion |
+| --- | --- | --- | --- | --- |
+| `available` | `fresh` | `1.0` | `fresh_availability` | Normal candidate |
+| `available` | `aging` | `0.8` | `aging_availability` | Normal candidate |
+| `available` | `stale` | `0.45` | `stale_availability_penalty` | Normal candidate, lower confidence |
+| `available` | `unknown` | `0.4` | `unknown_availability_penalty` | Normal candidate, lower confidence |
+| `occupied` | `fresh` or `aging` | `0.35` | `occupied_penalty` | Keep visible when route coverage is sparse |
+| `occupied` | `stale` | `0.25` | `occupied_penalty`, `stale_availability_penalty` | Keep visible when route coverage is sparse |
+| `occupied` | `unknown` | `0.25` | `occupied_penalty`, `unknown_availability_penalty` | Keep visible when route coverage is sparse |
+| `unknown` | Any | `0.25` | `unknown_availability_penalty` | Keep below known non-offline states |
+| `offline` | Any | `0.0` | `offline_fallback` | Fallback only |
+
+Rules:
+
+- `candidate.status` must be one of `available`, `occupied`, `offline`, or `unknown`.
+- Future status aliases are normalized before route planner candidates reach the optimizer.
+- Stale `available` must not be treated as confidently available.
+- Confirmed `offline` must not rank as a normal recommendation; include it only through fallback selection.
+- Keep raw float precision internally. Endpoint display code may round later.
+- Response metadata should still cite `snapshot_date`, `source`, or freshness labels when available, so UI and LLM summaries do not overstate availability.
+
 ## Charger Penalty Rules
 
 Stop optimizer scoring starts from a local candidate list and applies deterministic penalties. The exact numeric weights belong in 4.4, but the rule order is defined here.
@@ -418,10 +463,10 @@ Penalty inputs:
 | `candidate_reachable=false` | Apply the largest penalty; include only as fallback when no reachable candidate exists. |
 | Connector mismatch | Exclude by default. If a later fallback mode allows mismatch, mark reason `connector_mismatch_fallback`. |
 | Lower station power | Use `charging_power_score`; add `low_power_penalty` below `0.5` and never reward power above the vehicle cap. |
-| Stale availability | Penalize stale imported status using Phase 6B freshness rules. |
-| Unknown availability | Penalize below fresh `available`, but above confirmed `offline`. |
-| Confirmed `occupied` | Penalize below `available`; keep visible when route coverage is sparse. |
-| Confirmed `offline` | Apply severe penalty; include only as fallback with clear reason. |
+| Stale availability | Use `availability_score`; stale `available` remains visible but lower confidence. |
+| Unknown availability | Use `availability_score`; unknown status or freshness ranks below known non-offline states. |
+| Confirmed `occupied` | Use `availability_score`; keep visible when route coverage is sparse. |
+| Confirmed `offline` | Use `availability_score=0.0`; include only as fallback with clear reason. |
 | Larger route detour | Penalize higher `distance_from_route_km`. |
 | Duplicate station cluster | Penalize near-duplicate stops from the same station or very close coordinates after the best connector candidate is selected. |
 

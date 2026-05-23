@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from typing import cast
+
 import pytest
 
-from stop_optimizer import StopCandidate, estimate_reachable_segment, score_charging_power
+from stop_optimizer import (
+    AvailabilityStatus,
+    StopCandidate,
+    estimate_reachable_segment,
+    score_availability,
+    score_charging_power,
+)
 from vehicle_profile import VehicleProfile
 
 
 ESTIMATE_TOLERANCE = 1e-9
+REFERENCE_TIME = datetime(2026, 5, 24, 0, 0, tzinfo=timezone.utc)
 
 
 def vehicle() -> VehicleProfile:
@@ -38,7 +48,12 @@ def malformed_vehicle(**overrides: object) -> VehicleProfile:
     return profile
 
 
-def candidate(route_distance_km: float, max_kw: float = 150.0) -> StopCandidate:
+def candidate(
+    route_distance_km: float,
+    max_kw: float = 150.0,
+    status: AvailabilityStatus = "available",
+    status_updated_at: str | None = None,
+) -> StopCandidate:
     return StopCandidate(
         station_id="CFL-SYN-01234",
         name="Synthetic Seoul Fast Charger",
@@ -46,7 +61,8 @@ def candidate(route_distance_km: float, max_kw: float = 150.0) -> StopCandidate:
         max_kw=max_kw,
         distance_from_route_km=0.8,
         route_distance_km=route_distance_km,
-        status="available",
+        status=status,
+        status_updated_at=status_updated_at,
     )
 
 
@@ -114,6 +130,184 @@ def test_score_charging_power_rejects_invalid_vehicle_power(max_charging_kw: obj
         score_charging_power(
             candidate(route_distance_km=42.5),
             malformed_vehicle(max_charging_kw=max_charging_kw),
+        )
+
+
+@pytest.mark.parametrize(
+    ("status_updated_at", "freshness_label", "expected_score", "expected_reasons"),
+    [
+        ("2026-05-23T00:00:00+00:00", "fresh", 1.0, ("fresh_availability",)),
+        ("2026-05-20T00:00:00+00:00", "aging", 0.8, ("aging_availability",)),
+        ("2026-05-16T00:00:00+00:00", "stale", 0.45, ("stale_availability_penalty",)),
+        (None, "unknown", 0.4, ("unknown_availability_penalty",)),
+        ("not-a-timestamp", "unknown", 0.4, ("unknown_availability_penalty",)),
+        ("2026-05-25T00:00:00+00:00", "unknown", 0.4, ("unknown_availability_penalty",)),
+    ],
+)
+def test_score_availability_scores_available_by_freshness(
+    status_updated_at: str | None,
+    freshness_label: str,
+    expected_score: float,
+    expected_reasons: tuple[str, ...],
+) -> None:
+    availability = score_availability(
+        candidate(route_distance_km=42.5, status="available", status_updated_at=status_updated_at),
+        REFERENCE_TIME,
+    )
+
+    assert availability.freshness_label == freshness_label
+    assert availability.score == expected_score
+    assert availability.reasons == expected_reasons
+    assert availability.fallback_only is False
+
+
+@pytest.mark.parametrize(
+    ("status_updated_at", "freshness_label", "expected_score", "expected_reasons"),
+    [
+        ("2026-05-23T00:00:00+00:00", "fresh", 0.35, ("occupied_penalty",)),
+        ("2026-05-20T00:00:00+00:00", "aging", 0.35, ("occupied_penalty",)),
+        (
+            "2026-05-16T00:00:00+00:00",
+            "stale",
+            0.25,
+            ("occupied_penalty", "stale_availability_penalty"),
+        ),
+        (None, "unknown", 0.25, ("occupied_penalty", "unknown_availability_penalty")),
+    ],
+)
+def test_score_availability_scores_occupied_by_freshness(
+    status_updated_at: str | None,
+    freshness_label: str,
+    expected_score: float,
+    expected_reasons: tuple[str, ...],
+) -> None:
+    availability = score_availability(
+        candidate(route_distance_km=42.5, status="occupied", status_updated_at=status_updated_at),
+        REFERENCE_TIME,
+    )
+
+    assert availability.freshness_label == freshness_label
+    assert availability.score == expected_score
+    assert availability.reasons == expected_reasons
+    assert availability.fallback_only is False
+
+
+def test_score_availability_scores_unknown_status_below_known_non_offline_states() -> None:
+    availability = score_availability(
+        candidate(route_distance_km=42.5, status="unknown", status_updated_at="2026-05-23T00:00:00+00:00"),
+        REFERENCE_TIME,
+    )
+
+    assert availability.freshness_label == "fresh"
+    assert availability.score == 0.25
+    assert availability.reasons == ("unknown_availability_penalty",)
+    assert availability.fallback_only is False
+
+
+def test_score_availability_marks_offline_as_fallback_only() -> None:
+    availability = score_availability(
+        candidate(route_distance_km=42.5, status="offline", status_updated_at="2026-05-23T00:00:00+00:00"),
+        REFERENCE_TIME,
+    )
+
+    assert availability.freshness_label == "fresh"
+    assert availability.score == 0.0
+    assert availability.reasons == ("offline_fallback",)
+    assert availability.fallback_only is True
+
+
+def test_score_availability_orders_available_before_unavailable_statuses() -> None:
+    scored_candidates = [
+        (
+            "available",
+            score_availability(
+                candidate(
+                    route_distance_km=42.5,
+                    status="available",
+                    status_updated_at="2026-05-23T00:00:00+00:00",
+                ),
+                REFERENCE_TIME,
+            ),
+        ),
+        (
+            "occupied",
+            score_availability(
+                candidate(
+                    route_distance_km=42.5,
+                    status="occupied",
+                    status_updated_at="2026-05-23T00:00:00+00:00",
+                ),
+                REFERENCE_TIME,
+            ),
+        ),
+        (
+            "unknown",
+            score_availability(
+                candidate(
+                    route_distance_km=42.5,
+                    status="unknown",
+                    status_updated_at="2026-05-23T00:00:00+00:00",
+                ),
+                REFERENCE_TIME,
+            ),
+        ),
+        (
+            "offline",
+            score_availability(
+                candidate(
+                    route_distance_km=42.5,
+                    status="offline",
+                    status_updated_at="2026-05-23T00:00:00+00:00",
+                ),
+                REFERENCE_TIME,
+            ),
+        ),
+    ]
+
+    ordered_statuses = [
+        status for status, _ in sorted(scored_candidates, key=lambda item: item[1].score, reverse=True)
+    ]
+
+    assert ordered_statuses == ["available", "occupied", "unknown", "offline"]
+    assert [score.fallback_only for _, score in scored_candidates] == [False, False, False, True]
+
+
+def test_score_availability_orders_stale_available_above_unavailable_candidates() -> None:
+    stale_available = score_availability(
+        candidate(route_distance_km=42.5, status="available", status_updated_at="2026-05-16T00:00:00+00:00"),
+        REFERENCE_TIME,
+    )
+    fresh_occupied = score_availability(
+        candidate(route_distance_km=42.5, status="occupied", status_updated_at="2026-05-23T00:00:00+00:00"),
+        REFERENCE_TIME,
+    )
+    unknown_status = score_availability(
+        candidate(route_distance_km=42.5, status="unknown", status_updated_at="2026-05-23T00:00:00+00:00"),
+        REFERENCE_TIME,
+    )
+    offline = score_availability(
+        candidate(route_distance_km=42.5, status="offline", status_updated_at="2026-05-23T00:00:00+00:00"),
+        REFERENCE_TIME,
+    )
+
+    assert stale_available.score > fresh_occupied.score > unknown_status.score > offline.score
+    assert stale_available.fallback_only is False
+    assert offline.fallback_only is True
+
+
+def test_score_availability_rejects_invalid_status() -> None:
+    with pytest.raises(ValueError, match="candidate.status"):
+        score_availability(
+            candidate(route_distance_km=42.5, status=cast(AvailabilityStatus, "maintenance")),
+            REFERENCE_TIME,
+        )
+
+
+def test_score_availability_rejects_naive_reference_time() -> None:
+    with pytest.raises(ValueError, match="reference_time"):
+        score_availability(
+            candidate(route_distance_km=42.5, status_updated_at="2026-05-23T00:00:00+00:00"),
+            datetime(2026, 5, 24, 0, 0),
         )
 
 
