@@ -497,6 +497,46 @@ Rules:
 - Fallback-only candidates keep their trace fields and reasons, but their weighted reliability contribution is `0.0`.
 - Weighting must preserve availability ordering; it must not move `occupied`, `unknown`, or `offline` above `available` candidates by adding extra freshness boosts.
 
+### Stale penalty
+
+Stale penalty is a small additive adjustment for final recommendation ranking. It is separate from `availability_score` and `reliability_score` so the optimizer can explain freshness loss directly without changing the imported availability contract.
+
+Input:
+
+```json
+{
+  "freshness_label": "stale",
+  "availability_fallback_only": false,
+  "availability_reasons": ["stale_availability_penalty"]
+}
+```
+
+Penalty table:
+
+| `freshness_label` | `stale_penalty` | Reasons | Notes |
+| --- | --- | --- | --- |
+| `fresh` | `0.0` | none | No freshness penalty. |
+| `aging` | `0.0` | none | Aging is already reflected in `availability_score`; do not double-penalize. |
+| `stale` | `0.12` | `stale_availability_penalty` | Applies to stale imported status regardless of candidate status. |
+| `unknown` | `0.08` | `unknown_availability_penalty` | Applies when timestamp quality is not usable. |
+
+Final ranking should subtract the penalty:
+
+```text
+stale_adjustment = -stale_penalty
+```
+
+Rules:
+
+- Backend implementation entry point is `score_stale_penalty(availability)`.
+- The implementation constants are `STALE_AVAILABILITY_PENALTY=0.12` and `UNKNOWN_FRESHNESS_PENALTY=0.08`.
+- Build stale penalty only from `AvailabilityScore.freshness_label` and `AvailabilityScore.reasons`.
+- Keep penalty values non-negative and deterministic.
+- Do not apply a stale penalty to `fresh` or `aging`.
+- Do not increase a candidate score through stale penalty logic.
+- Do not change `fallback_only`; offline fallback inclusion is still controlled by availability and fallback selection rules.
+- Endpoint responses do not need to expose the raw penalty number in MVP, but recommendation reasons must include the matching freshness reason when the penalty is non-zero.
+
 ## Charger Penalty Rules
 
 Stop optimizer scoring starts from a local candidate list and applies deterministic penalties. The exact numeric weights belong in 4.4, but the rule order is defined here.
@@ -514,8 +554,8 @@ Penalty inputs:
 | `candidate_reachable=false` | Apply the largest penalty; include only as fallback when no reachable candidate exists. |
 | Connector mismatch | Exclude by default. If a later fallback mode allows mismatch, mark reason `connector_mismatch_fallback`. |
 | Lower station power | Use `charging_power_score`; add `low_power_penalty` below `0.5` and never reward power above the vehicle cap. |
-| Stale availability | Use `availability_score`; stale `available` remains visible but lower confidence. |
-| Unknown availability | Use `availability_score`; unknown status or freshness ranks below known non-offline states. |
+| Stale availability | Use `availability_score` plus `stale_penalty`; stale `available` remains visible but lower confidence. |
+| Unknown availability | Use `availability_score` plus `stale_penalty`; unknown status or freshness ranks below known non-offline states. |
 | Confirmed `occupied` | Use `availability_score`; keep visible when route coverage is sparse. |
 | Confirmed `offline` | Use `availability_score=0.0`; include only as fallback with clear reason. |
 | Reliability input | Build from availability score output and normalized candidate status only; do not claim historical uptime in MVP. |
@@ -626,7 +666,7 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Vehicle Profile Schema|battery_kwh|current_soc|target_arrival_soc|consumption_kwh_per_km|preferred_connector_types|max_charging_kw"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route Request and Response Schema|POST /api/routes/charging-plan|polyline|distance_km|recommendations|meta.limitations"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Simple SoC Estimate Model|estimated_energy_kwh|soc_delta|estimated_arrival_soc|reachable_without_stop|candidate_reachable"
-Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Imported availability score|Reliability score input|availability_score|freshness_label|availability_fallback_only|historical uptime"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Imported availability score|Reliability score input|Stale penalty|availability_score|freshness_label|stale_penalty|historical uptime"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Charger Penalty Rules|Hard filters|candidate_reachable=false|stale_availability_penalty|offline_fallback|fallback"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "External Route API Dependency Review|No route-provider SDK|route.polyline|route.distance_km|Disallowed MVP behavior|credential handling"
 rg -n "route API|external route|Directions|directions|OSRM|OpenRouteService|GraphHopper|Google Maps|Mapbox Directions|Naver|Kakao|Tmap|Valhalla|routing provider|route provider" D:\fleet\chargeflow-kr --glob "!frontend/node_modules/**" --glob "!backend/.venv/**" --glob "!backend/.pytest_cache/**"
@@ -642,7 +682,7 @@ Pass conditions:
 - Vehicle profile schema documents fields, units, and validation notes for later implementation.
 - Route request and response schema documents endpoint shape, route fields, recommendation fields, and response limitations.
 - Simple SoC estimate model documents deterministic route and candidate formulas without weather or traffic inputs.
-- Imported availability and reliability input sections define snapshot-based scoring inputs without live or historical uptime claims.
+- Imported availability, reliability input, and stale penalty sections define snapshot-based scoring inputs without live or historical uptime claims.
 - Charger penalty rules define hard filters, penalty inputs, reason allowlist, and fallback labeling.
 - External route API dependency review confirms route providers are not required and remain deferred.
 - Later schema and optimizer work remains explicitly deferred.

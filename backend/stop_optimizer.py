@@ -35,6 +35,8 @@ DEFAULT_MAX_RECOMMENDATIONS = 5
 HIGH_POWER_SCORE_THRESHOLD = 0.8
 LOW_POWER_SCORE_THRESHOLD = 0.5
 RELIABILITY_SCORE_WEIGHT = 0.30
+STALE_AVAILABILITY_PENALTY = 0.12
+UNKNOWN_FRESHNESS_PENALTY = 0.08
 FRESH_AVAILABILITY_MAX_AGE = timedelta(days=2)
 AGING_AVAILABILITY_MAX_AGE = timedelta(days=7)
 SUPPORTED_FRESHNESS_LABELS: tuple[FreshnessLabel, ...] = (
@@ -167,6 +169,24 @@ class ReliabilityScore:
         }
 
 
+@dataclass(frozen=True)
+class StalePenaltyScore:
+    freshness_label: FreshnessLabel
+    penalty: float
+    adjustment: float
+    reasons: ReasonList
+    fallback_only: bool
+
+    def to_dict(self) -> dict[str, str | float | bool | list[str]]:
+        return {
+            "freshness_label": self.freshness_label,
+            "penalty": self.penalty,
+            "adjustment": self.adjustment,
+            "reasons": list(self.reasons),
+            "fallback_only": self.fallback_only,
+        }
+
+
 def estimate_reachable_segment(candidate: StopCandidate, vehicle: VehicleProfile) -> ReachableSegmentEstimate:
     if not math.isfinite(candidate.route_distance_km) or candidate.route_distance_km < 0:
         raise ValueError("candidate.route_distance_km must be a finite non-negative number")
@@ -226,6 +246,27 @@ def score_reliability(candidate: StopCandidate, availability: AvailabilityScore)
         availability_reasons=availability.reasons,
         candidate_status=candidate_status,
         status_updated_at=candidate.status_updated_at,
+    )
+
+
+def score_stale_penalty(availability: AvailabilityScore) -> StalePenaltyScore:
+    freshness_label = _validate_freshness_label(availability.freshness_label)
+    penalty = 0.0
+    reasons: list[OptimizerReason] = []
+
+    if freshness_label == "stale":
+        penalty = STALE_AVAILABILITY_PENALTY
+        reasons.append("stale_availability_penalty")
+    elif freshness_label == "unknown":
+        penalty = UNKNOWN_FRESHNESS_PENALTY
+        reasons.append("unknown_availability_penalty")
+
+    return StalePenaltyScore(
+        freshness_label=freshness_label,
+        penalty=penalty,
+        adjustment=-penalty,
+        reasons=tuple(reasons),
+        fallback_only=availability.fallback_only,
     )
 
 
