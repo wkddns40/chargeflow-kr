@@ -6,11 +6,14 @@ from typing import cast
 import pytest
 
 from stop_optimizer import (
+    AvailabilityScore,
     AvailabilityStatus,
+    RELIABILITY_SCORE_WEIGHT,
     StopCandidate,
     estimate_reachable_segment,
     score_availability,
     score_charging_power,
+    score_reliability,
 )
 from vehicle_profile import VehicleProfile
 
@@ -293,6 +296,90 @@ def test_score_availability_orders_stale_available_above_unavailable_candidates(
     assert stale_available.score > fresh_occupied.score > unknown_status.score > offline.score
     assert stale_available.fallback_only is False
     assert offline.fallback_only is True
+
+
+def test_score_reliability_weights_available_candidate() -> None:
+    station = candidate(
+        route_distance_km=42.5,
+        status="available",
+        status_updated_at="2026-05-23T00:00:00+00:00",
+    )
+    availability = score_availability(station, REFERENCE_TIME)
+
+    reliability = score_reliability(station, availability)
+
+    assert reliability.raw_score == 1.0
+    assert reliability.weight == RELIABILITY_SCORE_WEIGHT
+    assert reliability.score == pytest.approx(1.0 * RELIABILITY_SCORE_WEIGHT, abs=ESTIMATE_TOLERANCE)
+    assert reliability.freshness_label == "fresh"
+    assert reliability.availability_reasons == ("fresh_availability",)
+    assert reliability.candidate_status == "available"
+    assert reliability.status_updated_at == "2026-05-23T00:00:00+00:00"
+
+
+def test_score_reliability_preserves_availability_ordering() -> None:
+    fresh_available = candidate(
+        route_distance_km=42.5,
+        status="available",
+        status_updated_at="2026-05-23T00:00:00+00:00",
+    )
+    stale_available = candidate(
+        route_distance_km=42.5,
+        status="available",
+        status_updated_at="2026-05-16T00:00:00+00:00",
+    )
+    fresh_occupied = candidate(
+        route_distance_km=42.5,
+        status="occupied",
+        status_updated_at="2026-05-23T00:00:00+00:00",
+    )
+
+    reliability_scores = [
+        score_reliability(station, score_availability(station, REFERENCE_TIME)).score
+        for station in (fresh_available, stale_available, fresh_occupied)
+    ]
+
+    assert reliability_scores[0] > reliability_scores[1] > reliability_scores[2]
+
+
+def test_score_reliability_keeps_offline_fallback_zero_weighted() -> None:
+    station = candidate(
+        route_distance_km=42.5,
+        status="offline",
+        status_updated_at="2026-05-23T00:00:00+00:00",
+    )
+    availability = score_availability(station, REFERENCE_TIME)
+
+    reliability = score_reliability(station, availability)
+
+    assert reliability.raw_score == 0.0
+    assert reliability.score == 0.0
+    assert reliability.fallback_only is True
+    assert reliability.availability_reasons == ("offline_fallback",)
+    assert reliability.to_dict() == {
+        "raw_score": 0.0,
+        "weight": RELIABILITY_SCORE_WEIGHT,
+        "score": 0.0,
+        "freshness_label": "fresh",
+        "fallback_only": True,
+        "availability_reasons": ["offline_fallback"],
+        "candidate_status": "offline",
+        "status_updated_at": "2026-05-23T00:00:00+00:00",
+    }
+
+
+@pytest.mark.parametrize("score", [-0.01, 1.01, float("nan"), float("inf"), "1.0", True])
+def test_score_reliability_rejects_invalid_availability_score(score: object) -> None:
+    with pytest.raises(ValueError, match="availability.score"):
+        score_reliability(
+            candidate(route_distance_km=42.5),
+            AvailabilityScore(
+                freshness_label="fresh",
+                score=score,  # type: ignore[arg-type]
+                reasons=("fresh_availability",),
+                fallback_only=False,
+            ),
+        )
 
 
 def test_score_availability_rejects_invalid_status() -> None:

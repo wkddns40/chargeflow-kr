@@ -34,8 +34,15 @@ ReasonList: TypeAlias = tuple[OptimizerReason, ...]
 DEFAULT_MAX_RECOMMENDATIONS = 5
 HIGH_POWER_SCORE_THRESHOLD = 0.8
 LOW_POWER_SCORE_THRESHOLD = 0.5
+RELIABILITY_SCORE_WEIGHT = 0.30
 FRESH_AVAILABILITY_MAX_AGE = timedelta(days=2)
 AGING_AVAILABILITY_MAX_AGE = timedelta(days=7)
+SUPPORTED_FRESHNESS_LABELS: tuple[FreshnessLabel, ...] = (
+    "fresh",
+    "aging",
+    "stale",
+    "unknown",
+)
 SUPPORTED_AVAILABILITY_STATUSES: tuple[AvailabilityStatus, ...] = (
     "available",
     "occupied",
@@ -136,6 +143,30 @@ class AvailabilityScore:
         }
 
 
+@dataclass(frozen=True)
+class ReliabilityScore:
+    raw_score: float
+    weight: float
+    score: float
+    freshness_label: FreshnessLabel
+    fallback_only: bool
+    availability_reasons: ReasonList
+    candidate_status: AvailabilityStatus
+    status_updated_at: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "raw_score": self.raw_score,
+            "weight": self.weight,
+            "score": self.score,
+            "freshness_label": self.freshness_label,
+            "fallback_only": self.fallback_only,
+            "availability_reasons": list(self.availability_reasons),
+            "candidate_status": self.candidate_status,
+            "status_updated_at": self.status_updated_at,
+        }
+
+
 def estimate_reachable_segment(candidate: StopCandidate, vehicle: VehicleProfile) -> ReachableSegmentEstimate:
     if not math.isfinite(candidate.route_distance_km) or candidate.route_distance_km < 0:
         raise ValueError("candidate.route_distance_km must be a finite non-negative number")
@@ -177,6 +208,24 @@ def score_availability(candidate: StopCandidate, reference_time: datetime) -> Av
         score=0.0,
         reasons=("offline_fallback",),
         fallback_only=True,
+    )
+
+
+def score_reliability(candidate: StopCandidate, availability: AvailabilityScore) -> ReliabilityScore:
+    candidate_status = _validate_availability_status(candidate.status)
+    freshness_label = _validate_freshness_label(availability.freshness_label)
+    raw_score = _validate_bounded_score(availability.score, "availability.score")
+    score = 0.0 if availability.fallback_only else raw_score * RELIABILITY_SCORE_WEIGHT
+
+    return ReliabilityScore(
+        raw_score=raw_score,
+        weight=RELIABILITY_SCORE_WEIGHT,
+        score=score,
+        freshness_label=freshness_label,
+        fallback_only=availability.fallback_only,
+        availability_reasons=availability.reasons,
+        candidate_status=candidate_status,
+        status_updated_at=candidate.status_updated_at,
     )
 
 
@@ -278,6 +327,22 @@ def _validate_availability_status(value: object) -> AvailabilityStatus:
         allowed = ", ".join(SUPPORTED_AVAILABILITY_STATUSES)
         raise ValueError(f"candidate.status must be one of: {allowed}")
     return cast(AvailabilityStatus, value)
+
+
+def _validate_freshness_label(value: object) -> FreshnessLabel:
+    if value not in SUPPORTED_FRESHNESS_LABELS:
+        allowed = ", ".join(SUPPORTED_FRESHNESS_LABELS)
+        raise ValueError(f"freshness_label must be one of: {allowed}")
+    return cast(FreshnessLabel, value)
+
+
+def _validate_bounded_score(value: object, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{field} must be a number")
+    score = float(value)
+    if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+        raise ValueError(f"{field} must be between 0.0 and 1.0")
+    return score
 
 
 def _require_aware_datetime(value: datetime, field: str) -> datetime:
