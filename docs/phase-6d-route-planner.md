@@ -446,6 +446,57 @@ Rules:
 - Keep raw float precision internally. Endpoint display code may round later.
 - Response metadata should still cite `snapshot_date`, `source`, or freshness labels when available, so UI and LLM summaries do not overstate availability.
 
+### Reliability score input
+
+Reliability is a later weighted score component built from already-normalized optimizer facts. For Phase 6D MVP, reliability does not mean historical uptime or live charger confidence; the current imported snapshot path does not provide enough long-running connector history for that claim.
+
+MVP input bundle:
+
+```json
+{
+  "availability_score": 1.0,
+  "freshness_label": "fresh",
+  "availability_fallback_only": false,
+  "availability_reasons": ["fresh_availability"],
+  "candidate_status": "available",
+  "status_updated_at": "2026-05-19T08:30:00+09:00"
+}
+```
+
+Input fields:
+
+| Field | Source | Required | Notes |
+| --- | --- | --- | --- |
+| `availability_score` | `AvailabilityScore.score` | yes | Bounded `0.0` to `1.0` snapshot confidence from imported status. |
+| `freshness_label` | `AvailabilityScore.freshness_label` | yes | One of `fresh`, `aging`, `stale`, or `unknown`. |
+| `availability_fallback_only` | `AvailabilityScore.fallback_only` | yes | Preserves offline/fallback-only handling for final ranking. |
+| `availability_reasons` | `AvailabilityScore.reasons` | yes | Existing reason allowlist values exposed for UI and LLM summaries. |
+| `candidate_status` | `StopCandidate.status` | yes | Normalized status after alias handling outside the optimizer. |
+| `status_updated_at` | `StopCandidate.status_updated_at` | no | Kept for traceability; missing, malformed, or future timestamps must already map to `freshness_label=unknown`. |
+
+Rules:
+
+- Build reliability input only after `score_availability(candidate, reference_time)` succeeds.
+- The input object must be serializable and deterministic for identical candidate and reference-time values.
+- Do not read live availability, traffic, weather, pricing, or external route-provider data.
+- Do not infer station uptime, operator reliability, connector failure rate, or queue prediction from a single imported snapshot.
+- Future history-backed fields such as `recent_observation_count`, `recent_available_ratio`, and `last_offline_at` are explicitly deferred until the status-event history is broad enough to support them.
+
+Reliability weighting:
+
+```text
+reliability_raw_score = availability_score
+reliability_weight = 0.30
+reliability_score = 0.0 if availability_fallback_only else reliability_raw_score * reliability_weight
+```
+
+Rules:
+
+- `reliability_raw_score` must stay bounded in `[0.0, 1.0]`.
+- `reliability_score` is a weighted contribution for later final recommendation ranking, not a standalone normalized confidence value.
+- Fallback-only candidates keep their trace fields and reasons, but their weighted reliability contribution is `0.0`.
+- Weighting must preserve availability ordering; it must not move `occupied`, `unknown`, or `offline` above `available` candidates by adding extra freshness boosts.
+
 ## Charger Penalty Rules
 
 Stop optimizer scoring starts from a local candidate list and applies deterministic penalties. The exact numeric weights belong in 4.4, but the rule order is defined here.
@@ -467,6 +518,7 @@ Penalty inputs:
 | Unknown availability | Use `availability_score`; unknown status or freshness ranks below known non-offline states. |
 | Confirmed `occupied` | Use `availability_score`; keep visible when route coverage is sparse. |
 | Confirmed `offline` | Use `availability_score=0.0`; include only as fallback with clear reason. |
+| Reliability input | Build from availability score output and normalized candidate status only; do not claim historical uptime in MVP. |
 | Larger route detour | Penalize higher `distance_from_route_km`. |
 | Duplicate station cluster | Penalize near-duplicate stops from the same station or very close coordinates after the best connector candidate is selected. |
 
@@ -574,6 +626,7 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Vehicle Profile Schema|battery_kwh|current_soc|target_arrival_soc|consumption_kwh_per_km|preferred_connector_types|max_charging_kw"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route Request and Response Schema|POST /api/routes/charging-plan|polyline|distance_km|recommendations|meta.limitations"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Simple SoC Estimate Model|estimated_energy_kwh|soc_delta|estimated_arrival_soc|reachable_without_stop|candidate_reachable"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Imported availability score|Reliability score input|availability_score|freshness_label|availability_fallback_only|historical uptime"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Charger Penalty Rules|Hard filters|candidate_reachable=false|stale_availability_penalty|offline_fallback|fallback"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "External Route API Dependency Review|No route-provider SDK|route.polyline|route.distance_km|Disallowed MVP behavior|credential handling"
 rg -n "route API|external route|Directions|directions|OSRM|OpenRouteService|GraphHopper|Google Maps|Mapbox Directions|Naver|Kakao|Tmap|Valhalla|routing provider|route provider" D:\fleet\chargeflow-kr --glob "!frontend/node_modules/**" --glob "!backend/.venv/**" --glob "!backend/.pytest_cache/**"
@@ -589,6 +642,7 @@ Pass conditions:
 - Vehicle profile schema documents fields, units, and validation notes for later implementation.
 - Route request and response schema documents endpoint shape, route fields, recommendation fields, and response limitations.
 - Simple SoC estimate model documents deterministic route and candidate formulas without weather or traffic inputs.
+- Imported availability and reliability input sections define snapshot-based scoring inputs without live or historical uptime claims.
 - Charger penalty rules define hard filters, penalty inputs, reason allowlist, and fallback labeling.
 - External route API dependency review confirms route providers are not required and remain deferred.
 - Later schema and optimizer work remains explicitly deferred.
