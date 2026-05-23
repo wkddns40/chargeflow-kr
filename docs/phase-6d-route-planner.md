@@ -200,6 +200,12 @@ This is deterministic local geometry for MVP candidate filtering. It is not turn
 
 Candidate filtering uses `filter_candidates_by_route_corridor(features, polyline, corridor_width_km)`. It returns GeoJSON station feature copies inside the corridor and adds `properties.distance_from_route_km` for later ranking. Input features are not mutated.
 
+### Numeric precision assumptions
+
+All route-corridor helper inputs are EPSG:4326 lon/lat floats and all computed distances are kilometers. The MVP uses a local equirectangular projection per segment calculation; this is acceptable for deterministic Korean route fixtures and kilometer-scale corridor filtering, but not for global geodesic accuracy.
+
+Helpers should keep full float precision internally and should not round `distance_from_route_km`. Endpoint/response code may round later for display. Tests that assert exact geometry behavior should use explicit tolerances; current route-corridor tests use `1e-9` km for deterministic equality checks.
+
 Response shape:
 
 ```json

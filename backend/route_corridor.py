@@ -53,8 +53,7 @@ def distance_to_segment_km(point: RouteCoordinate, start: RouteCoordinate, end: 
 
 
 def distance_to_route_km(point: RouteCoordinate, polyline: RoutePolyline) -> float:
-    if len(polyline) < MIN_ROUTE_POLYLINE_POINTS:
-        raise ValueError("route polyline must contain at least two points")
+    _validate_polyline(polyline)
     return min(
         distance_to_segment_km(point, segment_start, segment_end)
         for segment_start, segment_end in zip(polyline, polyline[1:])
@@ -76,6 +75,7 @@ def filter_candidates_by_route_corridor(
     corridor_width_km: float = DEFAULT_CORRIDOR_WIDTH_KM,
 ) -> list[Feature]:
     _validate_corridor_width(corridor_width_km)
+    _validate_polyline(polyline)
     candidates: list[Feature] = []
 
     for feature in features:
@@ -112,6 +112,11 @@ def _validate_coordinate(coordinate: RouteCoordinate, field: str) -> None:
 def _validate_corridor_width(corridor_width_km: float) -> None:
     if not math.isfinite(corridor_width_km) or corridor_width_km < 0:
         raise ValueError("corridor_width_km must be a finite non-negative number")
+
+
+def _validate_polyline(polyline: RoutePolyline) -> None:
+    if len(polyline) < MIN_ROUTE_POLYLINE_POINTS:
+        raise ValueError("route polyline must contain at least two points")
 
 
 def _with_route_distance(feature: Feature, distance_from_route_km: float) -> Feature:
