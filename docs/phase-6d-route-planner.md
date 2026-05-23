@@ -373,6 +373,34 @@ The optimizer must not reject a vehicle profile only because `target_arrival_soc
 
 The optimizer reachability function still validates `vehicle.current_soc` and `vehicle.target_arrival_soc` as finite values in `[0.0, 1.0]` at its boundary. This duplicates the vehicle profile guard intentionally so later callers cannot bypass the SoC floor rule with a malformed object.
 
+### Charging power score
+
+Charging power is a bounded score component, not the final recommendation score. It compares each candidate charger against the vehicle-side charging cap and must not reward station power that the vehicle cannot use.
+
+```text
+effective_charging_kw = min(candidate.max_kw, vehicle.max_charging_kw)
+charging_power_score = effective_charging_kw / vehicle.max_charging_kw
+```
+
+Rules:
+
+- `vehicle.max_charging_kw` must already be positive from vehicle profile validation.
+- `candidate.max_kw` must be finite and positive before optimizer scoring; missing, non-finite, or non-positive values should be rejected or excluded before ranking.
+- Clamp only by the vehicle cap. A 350 kW station and a 180 kW station both score `1.0` for a 180 kW vehicle.
+- `charging_power_score >= 0.8` adds `high_power`.
+- `charging_power_score < 0.5` adds `low_power_penalty`.
+- Scores in `[0.5, 0.8)` are neutral for power reasons; other scoring dimensions still decide ordering.
+- Keep raw float precision internally. Endpoint display code may round later.
+
+Examples for a vehicle with `max_charging_kw=180`:
+
+| `candidate.max_kw` | `effective_charging_kw` | `charging_power_score` | Reason |
+| --- | --- | --- | --- |
+| 350 | 180 | `1.0` | `high_power` |
+| 180 | 180 | `1.0` | `high_power` |
+| 150 | 150 | `0.833333...` | `high_power` |
+| 50 | 50 | `0.277777...` | `low_power_penalty` |
+
 ## Charger Penalty Rules
 
 Stop optimizer scoring starts from a local candidate list and applies deterministic penalties. The exact numeric weights belong in 4.4, but the rule order is defined here.
@@ -389,7 +417,7 @@ Penalty inputs:
 | --- | --- |
 | `candidate_reachable=false` | Apply the largest penalty; include only as fallback when no reachable candidate exists. |
 | Connector mismatch | Exclude by default. If a later fallback mode allows mismatch, mark reason `connector_mismatch_fallback`. |
-| Lower station power | Penalize chargers below `min(vehicle.max_charging_kw, station.max_kw)` preference; do not reward power above vehicle cap. |
+| Lower station power | Use `charging_power_score`; add `low_power_penalty` below `0.5` and never reward power above the vehicle cap. |
 | Stale availability | Penalize stale imported status using Phase 6B freshness rules. |
 | Unknown availability | Penalize below fresh `available`, but above confirmed `offline`. |
 | Confirmed `occupied` | Penalize below `available`; keep visible when route coverage is sparse. |

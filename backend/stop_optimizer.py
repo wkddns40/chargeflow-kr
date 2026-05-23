@@ -30,6 +30,8 @@ OptimizerReason = Literal[
 ReasonList: TypeAlias = tuple[OptimizerReason, ...]
 
 DEFAULT_MAX_RECOMMENDATIONS = 5
+HIGH_POWER_SCORE_THRESHOLD = 0.8
+LOW_POWER_SCORE_THRESHOLD = 0.5
 OPTIMIZER_REASON_ALLOWLIST: ReasonList = (
     "connector_match",
     "reachable",
@@ -94,6 +96,20 @@ class ReachableSegmentEstimate:
         }
 
 
+@dataclass(frozen=True)
+class ChargingPowerScore:
+    effective_charging_kw: float
+    score: float
+    reasons: ReasonList
+
+    def to_dict(self) -> dict[str, float | list[str]]:
+        return {
+            "effective_charging_kw": self.effective_charging_kw,
+            "score": self.score,
+            "reasons": list(self.reasons),
+        }
+
+
 def estimate_reachable_segment(candidate: StopCandidate, vehicle: VehicleProfile) -> ReachableSegmentEstimate:
     if not math.isfinite(candidate.route_distance_km) or candidate.route_distance_km < 0:
         raise ValueError("candidate.route_distance_km must be a finite non-negative number")
@@ -114,11 +130,38 @@ def estimate_reachable_segment(candidate: StopCandidate, vehicle: VehicleProfile
     )
 
 
+def score_charging_power(candidate: StopCandidate, vehicle: VehicleProfile) -> ChargingPowerScore:
+    _validate_positive_number(candidate.max_kw, "candidate.max_kw")
+    _validate_positive_number(vehicle.max_charging_kw, "vehicle.max_charging_kw")
+
+    effective_charging_kw = min(candidate.max_kw, vehicle.max_charging_kw)
+    score = effective_charging_kw / vehicle.max_charging_kw
+    reasons: list[OptimizerReason] = []
+
+    if score >= HIGH_POWER_SCORE_THRESHOLD:
+        reasons.append("high_power")
+    elif score < LOW_POWER_SCORE_THRESHOLD:
+        reasons.append("low_power_penalty")
+
+    return ChargingPowerScore(
+        effective_charging_kw=effective_charging_kw,
+        score=score,
+        reasons=tuple(reasons),
+    )
+
+
 def _validate_soc_floor(value: object, field: str) -> None:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{field} must be a number")
     if not math.isfinite(float(value)) or not 0.0 <= value <= 1.0:
         raise ValueError(f"{field} must be between 0.0 and 1.0")
+
+
+def _validate_positive_number(value: object, field: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{field} must be a number")
+    if not math.isfinite(float(value)) or value <= 0:
+        raise ValueError(f"{field} must be positive")
 
 
 @dataclass(frozen=True)
