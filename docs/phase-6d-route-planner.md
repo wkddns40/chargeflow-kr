@@ -288,6 +288,81 @@ Rules:
 - `minimum_required_soc` is a planning threshold, not a vehicle reading.
 - Round response values for display only; tests should compare deterministic numeric values with explicit tolerance.
 
+## Stop Optimizer Shape
+
+`backend/stop_optimizer.py` owns the route stop optimizer contract. It receives a normalized route, vehicle, and candidate list from earlier helpers; it returns recommendation rows that can be embedded directly in the route planner response.
+
+Input shape:
+
+```json
+{
+  "route_id": "fixture-seoul-daejeon",
+  "route_distance_km": 165.2,
+  "vehicle": {
+    "battery_kwh": 77.4,
+    "current_soc": 0.64,
+    "target_arrival_soc": 0.15,
+    "consumption_kwh_per_km": 0.18,
+    "preferred_connector_types": ["DC Combo"],
+    "max_charging_kw": 180
+  },
+  "candidates": [
+    {
+      "station_id": "CFL-SYN-01234",
+      "name": "Synthetic Seoul Fast Charger",
+      "connector_type": "DC Combo",
+      "max_kw": 150,
+      "distance_from_route_km": 0.8,
+      "route_distance_km": 42.5,
+      "status": "available",
+      "status_updated_at": "2026-05-19T08:30:00+09:00"
+    }
+  ],
+  "max_results": 5
+}
+```
+
+Output recommendation shape:
+
+```json
+{
+  "station_id": "CFL-SYN-01234",
+  "name": "Synthetic Seoul Fast Charger",
+  "connector_type": "DC Combo",
+  "max_kw": 150,
+  "distance_from_route_km": 0.8,
+  "route_distance_km": 42.5,
+  "estimated_arrival_soc": 0.54,
+  "score": 0.91,
+  "reasons": ["connector_match", "reachable", "high_power", "fresh_availability"]
+}
+```
+
+Typed backend names:
+
+| Shape | Backend type | Notes |
+| --- | --- | --- |
+| Candidate input row | `StopCandidate` | Normalized station candidate after route corridor filtering. |
+| Reachable segment estimate | `ReachableSegmentEstimate` | Route-prefix energy and SoC estimate for one candidate segment. |
+| Optimizer input | `StopOptimizerInput` | Route id, route distance, vehicle profile, candidates, and max result count. |
+| Output row | `StopRecommendation` | Recommendation row ordered by later optimizer scoring. |
+| Reason values | `OptimizerReason` / `OPTIMIZER_REASON_ALLOWLIST` | Closed reason set for UI and LLM summaries. |
+
+### Reachable segment calculation
+
+For 4.4 optimizer work, a segment means the route prefix from the origin to a candidate charging stop. `StopCandidate.route_distance_km` is the segment distance used by the MVP reachability estimate.
+
+```text
+segment_energy_kwh = candidate.route_distance_km * vehicle.consumption_kwh_per_km
+segment_soc_delta = segment_energy_kwh / vehicle.battery_kwh
+segment_estimated_arrival_soc = vehicle.current_soc - segment_soc_delta
+segment_reachable = segment_estimated_arrival_soc >= vehicle.target_arrival_soc
+```
+
+`ReachableSegmentEstimate` stores the full calculation result. The optimizer should keep raw float values internally; endpoint response code may round later for display.
+
+The backend implementation entry point is `estimate_reachable_segment(candidate, vehicle)`. It rejects non-finite or negative `candidate.route_distance_km`, then returns the full energy, SoC delta, estimated arrival SoC, target floor, and reachable boolean.
+
 ## Charger Penalty Rules
 
 Stop optimizer scoring starts from a local candidate list and applies deterministic penalties. The exact numeric weights belong in 4.4, but the rule order is defined here.
