@@ -157,8 +157,48 @@ Request fields:
 | `route.polyline` | array of `[lon, lat]` | yes | Ordered EPSG:4326 route coordinates. Must contain at least two points. |
 | `route.distance_km` | number | yes | Static route distance used by MVP energy estimate. |
 | `vehicle` | object | yes | Vehicle profile schema from this document. |
-| `constraints.corridor_width_km` | number | no | Search width around the route. Backend default is defined in 4.3. |
+| `constraints.corridor_width_km` | number | no | Search width around the route. Backend default is `3.0` km. |
 | `constraints.max_results` | integer | no | Maximum recommendation count returned after sorting. |
+
+### Route polyline fixture shape
+
+Small deterministic route fixtures for 4.3 live under `backend/fixtures/routes/` and use one route object per file. The shape mirrors `route` in the request payload without vehicle or constraint fields:
+
+```json
+{
+  "id": "fixture-seoul-daejeon",
+  "distance_km": 165.2,
+  "polyline": [
+    [126.978, 37.5665],
+    [127.0276, 37.4979],
+    [127.3845, 36.3504]
+  ]
+}
+```
+
+Fixture fields:
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | string | yes | Stable fixture identifier used in tests and response traceability. |
+| `distance_km` | number | yes | Positive static route distance; not provider-fetched or traffic-aware. |
+| `polyline` | array of `[lon, lat]` | yes | Ordered EPSG:4326 route coordinates. Must contain at least two points. |
+
+The typed backend shape is `RoutePolylineFixture` in `backend/route_corridor.py`. Fixtures must not include traffic, weather, external provider IDs, credentials, or route quality claims.
+
+### Route corridor width config
+
+The MVP backend default is `DEFAULT_CORRIDOR_WIDTH_KM = 3.0` in `backend/route_corridor.py`. This keeps route candidate search narrow enough for deterministic local fixtures while still covering chargers close to Korean expressway and arterial-road routes.
+
+The value is a local planning assumption, not a provider-derived route quality signal. Later endpoint code may accept `constraints.corridor_width_km`, but omitted values should use this default.
+
+### Approximate corridor distance logic
+
+`backend/route_corridor.py` calculates station distance from the route by projecting lon/lat coordinates into a local kilometer plane and measuring the shortest distance to each polyline segment. Corridor inclusion is inclusive: `distance_to_route_km(point, polyline) <= corridor_width_km`.
+
+This is deterministic local geometry for MVP candidate filtering. It is not turn-by-turn routing, travel-time estimation, or provider-grade road-network distance.
+
+Candidate filtering uses `filter_candidates_by_route_corridor(features, polyline, corridor_width_km)`. It returns GeoJSON station feature copies inside the corridor and adds `properties.distance_from_route_km` for later ranking. Input features are not mutated.
 
 Response shape:
 
