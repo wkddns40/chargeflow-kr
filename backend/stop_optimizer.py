@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from numbers import Real
 from typing import Any, Literal, TypeAlias
 
 from vehicle_profile import VehicleConnectorType, VehicleProfile
@@ -96,6 +97,8 @@ class ReachableSegmentEstimate:
 def estimate_reachable_segment(candidate: StopCandidate, vehicle: VehicleProfile) -> ReachableSegmentEstimate:
     if not math.isfinite(candidate.route_distance_km) or candidate.route_distance_km < 0:
         raise ValueError("candidate.route_distance_km must be a finite non-negative number")
+    _validate_soc_floor(vehicle.current_soc, "vehicle.current_soc")
+    _validate_soc_floor(vehicle.target_arrival_soc, "vehicle.target_arrival_soc")
 
     estimated_energy_kwh = candidate.route_distance_km * vehicle.consumption_kwh_per_km
     soc_delta = estimated_energy_kwh / vehicle.battery_kwh
@@ -109,6 +112,13 @@ def estimate_reachable_segment(candidate: StopCandidate, vehicle: VehicleProfile
         target_arrival_soc=vehicle.target_arrival_soc,
         reachable=estimated_arrival_soc >= vehicle.target_arrival_soc,
     )
+
+
+def _validate_soc_floor(value: object, field: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{field} must be a number")
+    if not math.isfinite(float(value)) or not 0.0 <= value <= 1.0:
+        raise ValueError(f"{field} must be between 0.0 and 1.0")
 
 
 @dataclass(frozen=True)
