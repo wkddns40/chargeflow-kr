@@ -607,6 +607,82 @@ Known optimizer limitations:
 - The current helper filters connector mismatches before ranking and does not support emergency connector-mismatch fallback.
 - Duplicate station cluster handling remains a documented penalty input but is not implemented in the 4.4 helper yet.
 
+## Serializable Route Planner Graph State
+
+`backend/route_planner_graph.py` defines the 4.5 graph state contract without importing LangGraph. The state uses only JSON-safe payloads so later graph runs, API responses, tests, and optional checkpointers do not need to serialize dataclasses, tuples, or datetime objects.
+
+State keys:
+
+- `request`: original route planner request payload.
+- `route_id`, `route_distance_km`, `route_polyline`: validated route fields.
+- `vehicle`: validated vehicle profile payload.
+- `constraints`: normalized planner constraints.
+- `station_features`: local station data available to the graph.
+- `candidate_features`: route-corridor-filtered station features.
+- `stop_candidates`: optimizer candidate dictionaries.
+- `optimizer_input`: serialized stop optimizer input.
+- `optimizer_response`: serialized stop optimizer response.
+- `response`: final endpoint-ready response payload.
+- `errors`: node-scoped validation or processing errors.
+
+Rules:
+
+- Graph state stores lists, dictionaries, strings, numbers, booleans, and nulls only.
+- Helper modules may use tuples and dataclasses internally, but graph nodes must convert them through `to_dict()` before writing state.
+- `route_polyline` uses `list[list[float]]`, not coordinate tuples, to keep JSON round-trips stable.
+- `errors` entries include the node name, message, and optional machine-readable code.
+
+### `validate_route_request` node
+
+`validate_route_request(state)` reads `state["request"]["route"]` and returns only JSON-safe state updates. It validates the route envelope before any vehicle, station, or optimizer work runs.
+
+Successful update keys:
+
+- `route_id`: stripped `route.id`, or `route-request` when the optional id is missing or blank.
+- `route_distance_km`: positive finite route distance.
+- `route_polyline`: validated `list[list[float]]` coordinates.
+- `errors`: existing errors, unchanged.
+
+Failure behavior:
+
+- Missing request returns `missing_request`.
+- Missing route object returns `missing_route`.
+- Invalid route id, distance, polyline length, coordinate type, or coordinate bounds returns `invalid_route`.
+- Errors are appended as `{node: "validate_route_request", message, code}` and no normalized route fields are written.
+
+### `validate_vehicle_profile` node
+
+`validate_vehicle_profile(state)` reads `state["request"]["vehicle"]` and delegates validation to `VehicleProfile`. It keeps vehicle schema rules in the helper module and stores only `VehicleProfile.to_dict()` output in graph state.
+
+Successful update keys:
+
+- `vehicle`: normalized vehicle payload with connector preferences as a JSON list.
+- `errors`: existing errors, unchanged.
+
+Failure behavior:
+
+- Missing request returns `missing_request`.
+- Missing vehicle object returns `missing_vehicle`.
+- Missing required fields, invalid numeric values, invalid SoC bounds, empty connector preferences, or unsupported connector types return `invalid_vehicle`.
+- Errors are appended as `{node: "validate_vehicle_profile", message, code}` and no normalized vehicle field is written.
+
+### `build_route_corridor` node
+
+`build_route_corridor(state)` reads normalized `state["route_polyline"]` from `validate_route_request` and the optional `request.constraints.corridor_width_km`. It builds the JSON-safe corridor payload used by later station-candidate filtering.
+
+Successful update keys:
+
+- `constraints`: normalized `corridor_width_km`, defaulting to `DEFAULT_CORRIDOR_WIDTH_KM` (`3.0`).
+- `route_corridor`: `{polyline, corridor_width_km}` with coordinate lists, not tuples.
+- `errors`: existing errors, unchanged.
+
+Failure behavior:
+
+- Missing `route_polyline` returns `invalid_corridor`.
+- Non-object `request.constraints` returns `invalid_corridor`.
+- Non-numeric, non-finite, or negative `constraints.corridor_width_km` returns `invalid_corridor`.
+- Errors are appended as `{node: "build_route_corridor", message, code}` and no corridor payload is written.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -657,6 +733,14 @@ Required existing pieces:
 - Status-event snapshot and freshness rules from Phase 6B.
 - Typed LLM/search safety rules from Phase 6C for any assistant-facing route query.
 
+LangGraph dependency decision:
+
+- As of 4.5.3, do not add `langgraph` to `backend/requirements.txt`.
+- The current deterministic helper chain already owns validation, corridor filtering, SoC math, and ranking without a graph runtime.
+- Add `langgraph` only when `backend/route_planner_graph.py` contains real orchestration nodes for request validation, corridor building, candidate lookup, SoC estimation, stop ranking, and response assembly.
+- Do not add `langgraph` for a thin wrapper that only calls one helper function or duplicates helper math.
+- Graph tests must prove graph output matches the helper-composed output before the dependency is justified.
+
 New implementation work starts in later 4.x tasks:
 
 - `backend/vehicle_profile.py`
@@ -690,6 +774,11 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Charger Penalty Rules|Hard filters|candidate_reachable=false|stale_availability_penalty|offline_fallback|fallback"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Known optimizer limitations|deterministic local ranking signal|not live charger state|not safe stop instructions|Duplicate station cluster"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "External Route API Dependency Review|No route-provider SDK|route.polyline|route.distance_km|Disallowed MVP behavior|credential handling"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "LangGraph dependency decision|do not add `langgraph`|real orchestration nodes|helper-composed output"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Serializable Route Planner Graph State|JSON-safe payloads|route_polyline|optimizer_response|errors"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_vehicle_profile|VehicleProfile.to_dict|missing_vehicle|invalid_vehicle|connector preferences"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "build_route_corridor|DEFAULT_CORRIDOR_WIDTH_KM|route_corridor|corridor_width_km|invalid_corridor"
 rg -n "route API|external route|Directions|directions|OSRM|OpenRouteService|GraphHopper|Google Maps|Mapbox Directions|Naver|Kakao|Tmap|Valhalla|routing provider|route provider" D:\fleet\chargeflow-kr --glob "!frontend/node_modules/**" --glob "!backend/.venv/**" --glob "!backend/.pytest_cache/**"
 ```
 
@@ -707,4 +796,9 @@ Pass conditions:
 - Charger penalty rules define hard filters, penalty inputs, reason allowlist, and fallback labeling.
 - Known optimizer limitations say ranking is not ETA/live state/safe stop instruction, and mark duplicate cluster handling as deferred.
 - External route API dependency review confirms route providers are not required and remain deferred.
+- LangGraph dependency decision prevents an unused dependency until real orchestration nodes and helper-equivalence tests exist.
+- Serializable route planner graph state uses JSON-safe payloads and keeps helper dataclasses out of persisted graph state.
+- `validate_route_request` documents normalized route fields and route validation error codes.
+- `validate_vehicle_profile` documents helper-owned vehicle validation and vehicle validation error codes.
+- `build_route_corridor` documents default corridor width, route corridor payload, and corridor validation error codes.
 - Later schema and optimizer work remains explicitly deferred.
