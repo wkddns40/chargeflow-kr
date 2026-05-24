@@ -647,6 +647,47 @@ def test_build_stop_optimizer_response_caps_fallback_recommendation_score() -> N
     assert "unreachable_fallback" in response.recommendations[0].reasons
 
 
+def test_build_stop_optimizer_response_orders_primary_ties_deterministically() -> None:
+    route_tie_alpha = candidate(
+        route_distance_km=40.0,
+        max_kw=180.0,
+        status_updated_at="2026-05-23T00:00:00+00:00",
+        station_id="CFL-SYN-00001",
+        distance_from_route_km=0.5,
+    )
+    route_tie_beta = candidate(
+        route_distance_km=40.0,
+        max_kw=180.0,
+        status_updated_at="2026-05-23T00:00:00+00:00",
+        station_id="CFL-SYN-00002",
+        distance_from_route_km=0.5,
+    )
+    later_on_route = candidate(
+        route_distance_km=42.0,
+        max_kw=180.0,
+        status_updated_at="2026-05-23T00:00:00+00:00",
+        station_id="CFL-SYN-00003",
+        distance_from_route_km=0.5,
+    )
+
+    def ordered_station_ids(candidates: tuple[StopCandidate, ...]) -> list[str]:
+        response = build_stop_optimizer_response(
+            StopOptimizerInput(
+                route_id="fixture-seoul-daejeon",
+                route_distance_km=165.2,
+                vehicle=vehicle(),
+                candidates=candidates,
+            ),
+            REFERENCE_TIME,
+        )
+        return [recommendation.station_id for recommendation in response.recommendations]
+
+    expected_order = ["CFL-SYN-00001", "CFL-SYN-00002", "CFL-SYN-00003"]
+
+    assert ordered_station_ids((later_on_route, route_tie_beta, route_tie_alpha)) == expected_order
+    assert ordered_station_ids((route_tie_beta, later_on_route, route_tie_alpha)) == expected_order
+
+
 def test_score_stale_penalty_rejects_invalid_freshness_label() -> None:
     with pytest.raises(ValueError, match="freshness_label"):
         score_stale_penalty(
