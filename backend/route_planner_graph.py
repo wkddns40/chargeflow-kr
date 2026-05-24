@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from numbers import Real
 from typing import Any, Literal, NotRequired, TypedDict
 
-from route_corridor import DEFAULT_CORRIDOR_WIDTH_KM
+from route_corridor import DEFAULT_CORRIDOR_WIDTH_KM, RoutePolyline, filter_candidates_by_route_corridor
 from vehicle_profile import VehicleProfile, VehicleProfileError
 
 
@@ -171,6 +171,22 @@ def build_route_corridor(state: RoutePlannerGraphState) -> RoutePlannerGraphStat
     }
 
 
+def find_station_candidates(state: RoutePlannerGraphState) -> RoutePlannerGraphState:
+    errors = list(state.get("errors", []))
+    try:
+        route_corridor = _route_corridor_from_state(state)
+        station_features = _station_features_from_state(state)
+        candidates = filter_candidates_by_route_corridor(
+            station_features,
+            _route_polyline_from_payload(route_corridor["polyline"]),
+            route_corridor["corridor_width_km"],
+        )
+    except ValueError as exc:
+        return {"errors": [*errors, _station_candidates_error(str(exc), "invalid_station_candidates")]}
+
+    return {"candidate_features": candidates, "errors": errors}
+
+
 def _route_request_error(message: str, code: str) -> RoutePlannerErrorPayload:
     return {"node": "validate_route_request", "message": message, "code": code}
 
@@ -181,6 +197,10 @@ def _vehicle_profile_error(message: str, code: str) -> RoutePlannerErrorPayload:
 
 def _route_corridor_error(message: str, code: str) -> RoutePlannerErrorPayload:
     return {"node": "build_route_corridor", "message": message, "code": code}
+
+
+def _station_candidates_error(message: str, code: str) -> RoutePlannerErrorPayload:
+    return {"node": "find_station_candidates", "message": message, "code": code}
 
 
 def _normalize_route_id(value: object) -> str:
@@ -225,6 +245,37 @@ def _route_corridor_width_from_state(state: RoutePlannerGraphState) -> float:
         constraints.get("corridor_width_km", DEFAULT_CORRIDOR_WIDTH_KM),
         "constraints.corridor_width_km",
     )
+
+
+def _route_corridor_from_state(state: RoutePlannerGraphState) -> RouteCorridorPayload:
+    corridor = state.get("route_corridor")
+    if not isinstance(corridor, Mapping):
+        raise ValueError("route_corridor is required")
+
+    return {
+        "polyline": _normalize_route_polyline(corridor.get("polyline")),
+        "corridor_width_km": _validate_non_negative_number(
+            corridor.get("corridor_width_km"),
+            "route_corridor.corridor_width_km",
+        ),
+    }
+
+
+def _station_features_from_state(state: RoutePlannerGraphState) -> list[FeaturePayload]:
+    features = state.get("station_features")
+    if isinstance(features, (str, bytes)) or not isinstance(features, Sequence):
+        raise ValueError("station_features is required")
+
+    normalized: list[FeaturePayload] = []
+    for index, feature in enumerate(features):
+        if not isinstance(feature, Mapping):
+            raise ValueError(f"station_features[{index}] must be an object")
+        normalized.append(dict(feature))
+    return normalized
+
+
+def _route_polyline_from_payload(polyline: list[list[float]]) -> RoutePolyline:
+    return tuple((point[0], point[1]) for point in polyline)
 
 
 def _normalize_route_polyline(value: object) -> list[list[float]]:
