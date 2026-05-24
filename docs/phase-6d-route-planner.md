@@ -683,6 +683,22 @@ Failure behavior:
 - Non-numeric, non-finite, or negative `constraints.corridor_width_km` returns `invalid_corridor`.
 - Errors are appended as `{node: "build_route_corridor", message, code}` and no corridor payload is written.
 
+### `find_station_candidates` node
+
+`find_station_candidates(state)` reads `state["route_corridor"]` and `state["station_features"]`, then delegates geometry filtering to `filter_candidates_by_route_corridor`. It does not load station files or query a database; a previous layer must provide the local station Feature list.
+
+Successful update keys:
+
+- `candidate_features`: station Feature dictionaries inside the route corridor, with `properties.distance_from_route_km` added by the corridor helper.
+- `errors`: existing errors, unchanged.
+
+Failure behavior:
+
+- Missing or invalid `route_corridor` returns `invalid_station_candidates`.
+- Missing or non-list `station_features` returns `invalid_station_candidates`.
+- Invalid GeoJSON station geometry or coordinates from the corridor helper returns `invalid_station_candidates`.
+- Errors are appended as `{node: "find_station_candidates", message, code}` and no candidate feature payload is written.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -779,6 +795,7 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_vehicle_profile|VehicleProfile.to_dict|missing_vehicle|invalid_vehicle|connector preferences"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "build_route_corridor|DEFAULT_CORRIDOR_WIDTH_KM|route_corridor|corridor_width_km|invalid_corridor"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "find_station_candidates|filter_candidates_by_route_corridor|station_features|candidate_features|invalid_station_candidates"
 rg -n "route API|external route|Directions|directions|OSRM|OpenRouteService|GraphHopper|Google Maps|Mapbox Directions|Naver|Kakao|Tmap|Valhalla|routing provider|route provider" D:\fleet\chargeflow-kr --glob "!frontend/node_modules/**" --glob "!backend/.venv/**" --glob "!backend/.pytest_cache/**"
 ```
 
@@ -801,4 +818,5 @@ Pass conditions:
 - `validate_route_request` documents normalized route fields and route validation error codes.
 - `validate_vehicle_profile` documents helper-owned vehicle validation and vehicle validation error codes.
 - `build_route_corridor` documents default corridor width, route corridor payload, and corridor validation error codes.
+- `find_station_candidates` documents corridor-filtered station feature output and station candidate error codes.
 - Later schema and optimizer work remains explicitly deferred.
