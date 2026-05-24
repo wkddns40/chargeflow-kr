@@ -8,18 +8,23 @@ import pytest
 from stop_optimizer import (
     AvailabilityScore,
     AvailabilityStatus,
+    FALLBACK_SCORE_CAP,
     FreshnessLabel,
+    ReachableSegmentEstimate,
     RELIABILITY_SCORE_WEIGHT,
     STALE_AVAILABILITY_PENALTY,
     StopCandidate,
+    StopOptimizerInput,
     UNKNOWN_FRESHNESS_PENALTY,
+    build_stop_optimizer_response,
     estimate_reachable_segment,
     score_availability,
     score_charging_power,
     score_reliability,
     score_stale_penalty,
+    select_fallback_candidates,
 )
-from vehicle_profile import VehicleProfile
+from vehicle_profile import VehicleConnectorType, VehicleProfile
 
 
 ESTIMATE_TOLERANCE = 1e-9
@@ -60,17 +65,24 @@ def candidate(
     max_kw: float = 150.0,
     status: AvailabilityStatus = "available",
     status_updated_at: str | None = None,
+    station_id: str = "CFL-SYN-01234",
+    distance_from_route_km: float = 0.8,
+    connector_type: VehicleConnectorType = "DC Combo",
 ) -> StopCandidate:
     return StopCandidate(
-        station_id="CFL-SYN-01234",
+        station_id=station_id,
         name="Synthetic Seoul Fast Charger",
-        connector_type="DC Combo",
+        connector_type=connector_type,
         max_kw=max_kw,
-        distance_from_route_km=0.8,
+        distance_from_route_km=distance_from_route_km,
         route_distance_km=route_distance_km,
         status=status,
         status_updated_at=status_updated_at,
     )
+
+
+def reachability(candidate: StopCandidate) -> ReachableSegmentEstimate:
+    return estimate_reachable_segment(candidate, vehicle())
 
 
 def test_estimate_reachable_segment_marks_reachable_candidate() -> None:
@@ -466,6 +478,173 @@ def test_score_stale_penalty_preserves_fallback_only() -> None:
         "reasons": ["stale_availability_penalty"],
         "fallback_only": True,
     }
+
+
+def test_select_fallback_candidates_returns_empty_when_primary_candidate_exists() -> None:
+    primary = candidate(route_distance_km=42.5, station_id="CFL-SYN-00001")
+    unreachable = candidate(route_distance_km=230.0, station_id="CFL-SYN-00002")
+    offline = candidate(route_distance_km=45.0, status="offline", station_id="CFL-SYN-00003")
+
+    fallbacks = select_fallback_candidates(
+        (
+            (primary, reachability(primary), score_availability(primary, REFERENCE_TIME)),
+            (unreachable, reachability(unreachable), score_availability(unreachable, REFERENCE_TIME)),
+            (offline, reachability(offline), score_availability(offline, REFERENCE_TIME)),
+        )
+    )
+
+    assert fallbacks == ()
+
+
+def test_select_fallback_candidates_includes_unreachable_when_no_primary_exists() -> None:
+    unreachable = candidate(route_distance_km=230.0, station_id="CFL-SYN-00001")
+
+    fallbacks = select_fallback_candidates(
+        ((unreachable, reachability(unreachable), score_availability(unreachable, REFERENCE_TIME)),)
+    )
+
+    assert len(fallbacks) == 1
+    assert fallbacks[0].candidate.station_id == "CFL-SYN-00001"
+    assert fallbacks[0].reasons == ("unreachable_fallback",)
+    assert fallbacks[0].to_dict()["reasons"] == ["unreachable_fallback"]
+
+
+def test_select_fallback_candidates_includes_offline_when_no_primary_exists() -> None:
+    offline = candidate(route_distance_km=42.5, status="offline", station_id="CFL-SYN-00001")
+
+    fallbacks = select_fallback_candidates(
+        ((offline, reachability(offline), score_availability(offline, REFERENCE_TIME)),)
+    )
+
+    assert len(fallbacks) == 1
+    assert fallbacks[0].candidate.station_id == "CFL-SYN-00001"
+    assert fallbacks[0].reasons == ("offline_fallback",)
+    assert fallbacks[0].availability.fallback_only is True
+
+
+def test_select_fallback_candidates_combines_unreachable_and_offline_reasons() -> None:
+    offline_unreachable = candidate(route_distance_km=230.0, status="offline", station_id="CFL-SYN-00001")
+
+    fallbacks = select_fallback_candidates(
+        (
+            (
+                offline_unreachable,
+                reachability(offline_unreachable),
+                score_availability(offline_unreachable, REFERENCE_TIME),
+            ),
+        )
+    )
+
+    assert len(fallbacks) == 1
+    assert fallbacks[0].reasons == ("unreachable_fallback", "offline_fallback")
+
+
+def test_select_fallback_candidates_orders_and_caps_fallbacks() -> None:
+    far_unreachable = candidate(route_distance_km=230.0, station_id="CFL-SYN-00003")
+    near_unreachable = candidate(route_distance_km=215.0, station_id="CFL-SYN-00001")
+    offline = candidate(
+        route_distance_km=40.0,
+        status="offline",
+        station_id="CFL-SYN-00002",
+        distance_from_route_km=0.1,
+    )
+
+    fallbacks = select_fallback_candidates(
+        (
+            (far_unreachable, reachability(far_unreachable), score_availability(far_unreachable, REFERENCE_TIME)),
+            (offline, reachability(offline), score_availability(offline, REFERENCE_TIME)),
+            (near_unreachable, reachability(near_unreachable), score_availability(near_unreachable, REFERENCE_TIME)),
+        ),
+        max_results=2,
+    )
+
+    assert [fallback.candidate.station_id for fallback in fallbacks] == ["CFL-SYN-00001", "CFL-SYN-00003"]
+
+
+@pytest.mark.parametrize("max_results", [0, -1, True, "2"])
+def test_select_fallback_candidates_rejects_invalid_max_results(max_results: object) -> None:
+    unreachable = candidate(route_distance_km=230.0)
+
+    with pytest.raises(ValueError, match="max_results"):
+        select_fallback_candidates(
+            ((unreachable, reachability(unreachable), score_availability(unreachable, REFERENCE_TIME)),),
+            max_results=max_results,
+        )
+
+
+def test_build_stop_optimizer_response_returns_summary_and_sorted_recommendations() -> None:
+    fast = candidate(
+        route_distance_km=42.5,
+        max_kw=180.0,
+        status_updated_at="2026-05-23T00:00:00+00:00",
+        station_id="CFL-SYN-00001",
+        distance_from_route_km=0.5,
+    )
+    slow = candidate(
+        route_distance_km=40.0,
+        max_kw=50.0,
+        status_updated_at="2026-05-23T00:00:00+00:00",
+        station_id="CFL-SYN-00002",
+        distance_from_route_km=0.5,
+    )
+    offline = candidate(
+        route_distance_km=35.0,
+        status="offline",
+        station_id="CFL-SYN-00003",
+    )
+    incompatible = candidate(
+        route_distance_km=30.0,
+        station_id="CFL-SYN-00004",
+        connector_type="AC Type 2",
+    )
+
+    response = build_stop_optimizer_response(
+        StopOptimizerInput(
+            route_id="fixture-seoul-daejeon",
+            route_distance_km=165.2,
+            vehicle=vehicle(),
+            candidates=(slow, offline, incompatible, fast),
+            max_results=2,
+        ),
+        REFERENCE_TIME,
+    )
+
+    assert response.route_id == "fixture-seoul-daejeon"
+    assert response.summary.estimated_energy_kwh == pytest.approx(165.2 * 0.18, abs=ESTIMATE_TOLERANCE)
+    assert response.summary.minimum_required_soc == pytest.approx(0.15 + (165.2 * 0.18 / 77.4), abs=ESTIMATE_TOLERANCE)
+    assert response.summary.reachable_without_stop is True
+    assert [recommendation.station_id for recommendation in response.recommendations] == [
+        "CFL-SYN-00001",
+        "CFL-SYN-00002",
+    ]
+    assert response.recommendations[0].score > response.recommendations[1].score
+    assert response.recommendations[0].reasons == (
+        "connector_match",
+        "reachable",
+        "high_power",
+        "fresh_availability",
+        "short_detour",
+    )
+    assert response.to_dict()["recommendations"][0]["station_id"] == "CFL-SYN-00001"
+
+
+def test_build_stop_optimizer_response_caps_fallback_recommendation_score() -> None:
+    unreachable = candidate(route_distance_km=230.0, max_kw=180.0, station_id="CFL-SYN-00001")
+
+    response = build_stop_optimizer_response(
+        StopOptimizerInput(
+            route_id="fixture-seoul-daejeon",
+            route_distance_km=165.2,
+            vehicle=vehicle(),
+            candidates=(unreachable,),
+        ),
+        REFERENCE_TIME,
+    )
+
+    assert len(response.recommendations) == 1
+    assert response.recommendations[0].station_id == "CFL-SYN-00001"
+    assert response.recommendations[0].score <= FALLBACK_SCORE_CAP
+    assert "unreachable_fallback" in response.recommendations[0].reasons
 
 
 def test_score_stale_penalty_rejects_invalid_freshness_label() -> None:

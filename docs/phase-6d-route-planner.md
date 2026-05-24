@@ -587,6 +587,16 @@ Rules:
 - The response must expose enough `reasons` for UI and LLM summaries to explain ranking without exposing private scoring constants.
 - Fallback inclusion is allowed to avoid empty responses, but fallback rows must be labeled clearly.
 
+Fallback selection:
+
+- Backend implementation entry point is `select_fallback_candidates(evaluations, max_results=5)`.
+- `evaluations` are `(StopCandidate, ReachableSegmentEstimate, AvailabilityScore)` tuples produced by earlier optimizer helpers.
+- A primary candidate is `reachability.reachable=true` and `availability.fallback_only=false`.
+- If at least one primary candidate exists, fallback selection returns no fallback rows.
+- If no primary candidate exists, candidates with `reachability.reachable=false` receive `unreachable_fallback`.
+- If no primary candidate exists, candidates with `availability.fallback_only=true` receive `offline_fallback`.
+- Fallback rows are capped by `max_results` and ordered deterministically by availability fallback severity, route distance, detour distance, then station id.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.

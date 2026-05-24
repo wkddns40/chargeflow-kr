@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from numbers import Real
@@ -30,13 +31,21 @@ OptimizerReason = Literal[
     "cluster_duplicate_penalty",
 ]
 ReasonList: TypeAlias = tuple[OptimizerReason, ...]
+FallbackEvaluation: TypeAlias = tuple["StopCandidate", "ReachableSegmentEstimate", "AvailabilityScore"]
 
 DEFAULT_MAX_RECOMMENDATIONS = 5
 HIGH_POWER_SCORE_THRESHOLD = 0.8
 LOW_POWER_SCORE_THRESHOLD = 0.5
+CONNECTOR_SCORE_WEIGHT = 0.10
+REACHABLE_SCORE_WEIGHT = 0.25
+CHARGING_POWER_SCORE_WEIGHT = 0.25
 RELIABILITY_SCORE_WEIGHT = 0.30
+DETOUR_SCORE_WEIGHT = 0.10
 STALE_AVAILABILITY_PENALTY = 0.12
 UNKNOWN_FRESHNESS_PENALTY = 0.08
+FALLBACK_SCORE_CAP = 0.49
+MAX_DETOUR_SCORE_DISTANCE_KM = 3.0
+SHORT_DETOUR_THRESHOLD_KM = 1.0
 FRESH_AVAILABILITY_MAX_AGE = timedelta(days=2)
 AGING_AVAILABILITY_MAX_AGE = timedelta(days=7)
 SUPPORTED_FRESHNESS_LABELS: tuple[FreshnessLabel, ...] = (
@@ -187,6 +196,22 @@ class StalePenaltyScore:
         }
 
 
+@dataclass(frozen=True)
+class FallbackCandidateSelection:
+    candidate: StopCandidate
+    reachability: ReachableSegmentEstimate
+    availability: AvailabilityScore
+    reasons: ReasonList
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "candidate": self.candidate.to_dict(),
+            "reachability": self.reachability.to_dict(),
+            "availability": self.availability.to_dict(),
+            "reasons": list(self.reasons),
+        }
+
+
 def estimate_reachable_segment(candidate: StopCandidate, vehicle: VehicleProfile) -> ReachableSegmentEstimate:
     if not math.isfinite(candidate.route_distance_km) or candidate.route_distance_km < 0:
         raise ValueError("candidate.route_distance_km must be a finite non-negative number")
@@ -268,6 +293,31 @@ def score_stale_penalty(availability: AvailabilityScore) -> StalePenaltyScore:
         reasons=tuple(reasons),
         fallback_only=availability.fallback_only,
     )
+
+
+def select_fallback_candidates(
+    evaluations: Iterable[FallbackEvaluation],
+    *,
+    max_results: int = DEFAULT_MAX_RECOMMENDATIONS,
+) -> tuple[FallbackCandidateSelection, ...]:
+    limit = _validate_positive_integer(max_results, "max_results")
+    items = tuple(evaluations)
+
+    if any(_is_primary_candidate(reachability, availability) for _, reachability, availability in items):
+        return ()
+
+    fallback_candidates = [
+        FallbackCandidateSelection(
+            candidate=candidate,
+            reachability=reachability,
+            availability=availability,
+            reasons=_fallback_reasons(reachability, availability),
+        )
+        for candidate, reachability, availability in items
+        if _fallback_reasons(reachability, availability)
+    ]
+
+    return tuple(sorted(fallback_candidates, key=_fallback_sort_key)[:limit])
 
 
 def score_charging_power(candidate: StopCandidate, vehicle: VehicleProfile) -> ChargingPowerScore:
@@ -386,6 +436,34 @@ def _validate_bounded_score(value: object, field: str) -> float:
     return score
 
 
+def _validate_positive_integer(value: object, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{field} must be a positive integer")
+    return value
+
+
+def _is_primary_candidate(reachability: ReachableSegmentEstimate, availability: AvailabilityScore) -> bool:
+    return reachability.reachable and not availability.fallback_only
+
+
+def _fallback_reasons(reachability: ReachableSegmentEstimate, availability: AvailabilityScore) -> ReasonList:
+    reasons: list[OptimizerReason] = []
+    if not reachability.reachable:
+        reasons.append("unreachable_fallback")
+    if availability.fallback_only:
+        reasons.append("offline_fallback")
+    return tuple(reasons)
+
+
+def _fallback_sort_key(selection: FallbackCandidateSelection) -> tuple[bool, float, float, str]:
+    return (
+        selection.availability.fallback_only,
+        selection.reachability.route_distance_km,
+        selection.candidate.distance_from_route_km,
+        selection.candidate.station_id,
+    )
+
+
 def _require_aware_datetime(value: datetime, field: str) -> datetime:
     if not isinstance(value, datetime):
         raise ValueError(f"{field} must be a datetime")
@@ -450,3 +528,233 @@ class StopRecommendation:
             "score": self.score,
             "reasons": list(self.reasons),
         }
+
+
+@dataclass(frozen=True)
+class StopOptimizerSummary:
+    distance_km: float
+    estimated_energy_kwh: float
+    start_soc: float
+    target_arrival_soc: float
+    minimum_required_soc: float
+    reachable_without_stop: bool
+
+    def to_dict(self) -> dict[str, float | bool]:
+        return {
+            "distance_km": self.distance_km,
+            "estimated_energy_kwh": self.estimated_energy_kwh,
+            "start_soc": self.start_soc,
+            "target_arrival_soc": self.target_arrival_soc,
+            "minimum_required_soc": self.minimum_required_soc,
+            "reachable_without_stop": self.reachable_without_stop,
+        }
+
+
+@dataclass(frozen=True)
+class StopOptimizerResponse:
+    route_id: str
+    summary: StopOptimizerSummary
+    recommendations: tuple[StopRecommendation, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "route_id": self.route_id,
+            "summary": self.summary.to_dict(),
+            "recommendations": [recommendation.to_dict() for recommendation in self.recommendations],
+        }
+
+
+@dataclass(frozen=True)
+class _CandidateEvaluation:
+    candidate: StopCandidate
+    reachability: ReachableSegmentEstimate
+    charging_power: ChargingPowerScore
+    availability: AvailabilityScore
+    reliability: ReliabilityScore
+    stale_penalty: StalePenaltyScore
+    score: float
+    reasons: ReasonList
+
+    def to_fallback_evaluation(self) -> FallbackEvaluation:
+        return (self.candidate, self.reachability, self.availability)
+
+    def to_recommendation(self) -> StopRecommendation:
+        return StopRecommendation(
+            station_id=self.candidate.station_id,
+            name=self.candidate.name,
+            connector_type=self.candidate.connector_type,
+            max_kw=self.candidate.max_kw,
+            distance_from_route_km=self.candidate.distance_from_route_km,
+            route_distance_km=self.candidate.route_distance_km,
+            estimated_arrival_soc=self.reachability.estimated_arrival_soc,
+            score=self.score,
+            reasons=self.reasons,
+        )
+
+
+def build_stop_optimizer_response(
+    optimizer_input: StopOptimizerInput,
+    reference_time: datetime,
+) -> StopOptimizerResponse:
+    limit = _validate_positive_integer(optimizer_input.max_results, "max_results")
+    summary = _build_optimizer_summary(optimizer_input.route_distance_km, optimizer_input.vehicle)
+    reference = _require_aware_datetime(reference_time, "reference_time")
+    evaluations = tuple(
+        _score_candidate(candidate, optimizer_input.vehicle, reference)
+        for candidate in optimizer_input.candidates
+        if _connector_matches(candidate, optimizer_input.vehicle)
+    )
+
+    primary_recommendations = tuple(
+        evaluation.to_recommendation()
+        for evaluation in evaluations
+        if _is_primary_candidate(evaluation.reachability, evaluation.availability)
+    )
+
+    if primary_recommendations:
+        recommendations = tuple(sorted(primary_recommendations, key=_recommendation_sort_key)[:limit])
+    else:
+        fallback_selections = select_fallback_candidates(
+            (evaluation.to_fallback_evaluation() for evaluation in evaluations),
+            max_results=limit,
+        )
+        fallback_recommendations = tuple(
+            recommendation
+            for selection in fallback_selections
+            for recommendation in (_recommendation_for_selection(selection, evaluations),)
+            if recommendation is not None
+        )
+        recommendations = tuple(
+            sorted(fallback_recommendations, key=_recommendation_sort_key)[:limit]
+        )
+
+    return StopOptimizerResponse(
+        route_id=optimizer_input.route_id,
+        summary=summary,
+        recommendations=recommendations,
+    )
+
+
+def _build_optimizer_summary(route_distance_km: float, vehicle: VehicleProfile) -> StopOptimizerSummary:
+    _validate_positive_number(route_distance_km, "route_distance_km")
+    estimated_energy_kwh = route_distance_km * vehicle.consumption_kwh_per_km
+    soc_delta = estimated_energy_kwh / vehicle.battery_kwh
+    minimum_required_soc = vehicle.target_arrival_soc + soc_delta
+    estimated_arrival_soc = vehicle.current_soc - soc_delta
+
+    return StopOptimizerSummary(
+        distance_km=route_distance_km,
+        estimated_energy_kwh=estimated_energy_kwh,
+        start_soc=vehicle.current_soc,
+        target_arrival_soc=vehicle.target_arrival_soc,
+        minimum_required_soc=minimum_required_soc,
+        reachable_without_stop=estimated_arrival_soc >= vehicle.target_arrival_soc,
+    )
+
+
+def _score_candidate(
+    candidate: StopCandidate,
+    vehicle: VehicleProfile,
+    reference_time: datetime,
+) -> _CandidateEvaluation:
+    reachability = estimate_reachable_segment(candidate, vehicle)
+    charging_power = score_charging_power(candidate, vehicle)
+    availability = score_availability(candidate, reference_time)
+    reliability = score_reliability(candidate, availability)
+    stale_penalty = score_stale_penalty(availability)
+    detour_score, detour_reasons = _score_detour(candidate.distance_from_route_km)
+    score = _cap_fallback_score(
+        _clamp_score(
+            CONNECTOR_SCORE_WEIGHT
+            + (REACHABLE_SCORE_WEIGHT if reachability.reachable else 0.0)
+            + (charging_power.score * CHARGING_POWER_SCORE_WEIGHT)
+            + reliability.score
+            + (detour_score * DETOUR_SCORE_WEIGHT)
+            + stale_penalty.adjustment
+        ),
+        reachability,
+        availability,
+    )
+    reasons = _merge_reasons(
+        ("connector_match",),
+        ("reachable",) if reachability.reachable else ("unreachable_fallback",),
+        charging_power.reasons,
+        availability.reasons,
+        stale_penalty.reasons,
+        detour_reasons,
+    )
+
+    return _CandidateEvaluation(
+        candidate=candidate,
+        reachability=reachability,
+        charging_power=charging_power,
+        availability=availability,
+        reliability=reliability,
+        stale_penalty=stale_penalty,
+        score=score,
+        reasons=reasons,
+    )
+
+
+def _recommendation_for_selection(
+    selection: FallbackCandidateSelection,
+    evaluations: tuple[_CandidateEvaluation, ...],
+) -> StopRecommendation | None:
+    for evaluation in evaluations:
+        if evaluation.candidate == selection.candidate:
+            return evaluation.to_recommendation()
+    return None
+
+
+def _score_detour(distance_from_route_km: float) -> tuple[float, ReasonList]:
+    _validate_non_negative_number(distance_from_route_km, "candidate.distance_from_route_km")
+    detour_score = max(
+        0.0,
+        1.0 - min(distance_from_route_km, MAX_DETOUR_SCORE_DISTANCE_KM) / MAX_DETOUR_SCORE_DISTANCE_KM,
+    )
+    if distance_from_route_km <= SHORT_DETOUR_THRESHOLD_KM:
+        return detour_score, ("short_detour",)
+    return detour_score, ("long_detour_penalty",)
+
+
+def _merge_reasons(*reason_groups: ReasonList) -> ReasonList:
+    reasons: list[OptimizerReason] = []
+    for group in reason_groups:
+        for reason in group:
+            if reason not in reasons:
+                reasons.append(reason)
+    return tuple(reasons)
+
+
+def _recommendation_sort_key(recommendation: StopRecommendation) -> tuple[float, float, float, str]:
+    return (
+        -recommendation.score,
+        recommendation.route_distance_km,
+        recommendation.distance_from_route_km,
+        recommendation.station_id,
+    )
+
+
+def _connector_matches(candidate: StopCandidate, vehicle: VehicleProfile) -> bool:
+    return candidate.connector_type in vehicle.preferred_connector_types
+
+
+def _validate_non_negative_number(value: object, field: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{field} must be a number")
+    if not math.isfinite(float(value)) or value < 0:
+        raise ValueError(f"{field} must be non-negative")
+
+
+def _clamp_score(score: float) -> float:
+    return max(0.0, min(1.0, score))
+
+
+def _cap_fallback_score(
+    score: float,
+    reachability: ReachableSegmentEstimate,
+    availability: AvailabilityScore,
+) -> float:
+    if not _is_primary_candidate(reachability, availability):
+        return min(score, FALLBACK_SCORE_CAP)
+    return score
