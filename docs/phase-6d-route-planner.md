@@ -857,6 +857,24 @@ As of 5.1.3, successful route planner panel responses are applied to the map by 
 
 This is a smoke hook for route-aware map feedback, not route drawing. If a recommended station is not loaded in the current frontend dataset or viewport response, it is skipped instead of inventing coordinates or fetching external data. Clearing the route planner panel clears the highlighted recommendation layer.
 
+### Frontend recommendation reason labels
+
+As of 5.1.4, route planner recommendation rows display backend-provided `reasons`, `score`, and `estimated_arrival_soc` values. Known reason codes are mapped to short UI labels, while unknown backend reason codes remain visible by replacing underscores with spaces instead of hiding or reinterpreting them.
+
+Fallback reasons such as `offline_fallback`, `unreachable_fallback`, and `connector_mismatch_fallback` receive a distinct row style so fallback recommendations are not presented as normal safe-stop instructions. The frontend still does not invent explanations, ETA, wait time, pricing, live availability, route quality, or charger safety claims.
+
+### Frontend metadata disclosure
+
+As of 5.1.5, route planner results display backend `meta.source` and any present `meta.freshness_label` or `meta.snapshot_date` rows. The panel also renders every `meta.limitations` entry in backend order instead of truncating the list, preserving the local-data, no-traffic, no-weather, imported-snapshot, and fallback warnings for users.
+
+The frontend treats metadata as display-only backend facts. It does not derive missing metadata, claim live state, infer route quality, or hide backend limitations to make the plan look more complete.
+
+### Frontend graph error display
+
+As of 5.1.6, `fetchChargingPlan()` preserves failed backend response details in `RoutePlannerApiError`. Route planner panel failures display backend graph validation entries with `node`, `code`, and `message`, such as `validate_route_request / missing_route: request.route is required`.
+
+String backend errors, such as local fixture load failures, are also displayed. The frontend does not rewrite errors into route advice, retry with inferred data, hide node codes, or turn validation failures into recommendations.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -919,6 +937,9 @@ LangGraph dependency decision:
 - As of 5.1.1, the frontend has a typed route planner client behind `VITE_ENABLE_ROUTE_PLANNER=false`; it only calls the local backend route planner endpoint.
 - As of 5.1.2, the frontend has a feature-flagged route planner panel shell that submits static local route payloads and displays backend response fields.
 - As of 5.1.3, route planner recommendations can highlight matching loaded station features on the map without drawing routes or fetching external coordinates.
+- As of 5.1.4, route planner recommendation rows display backend reason codes, score, and estimated arrival SoC with fallback rows visually distinguished.
+- As of 5.1.5, route planner results display response metadata and preserve every backend limitation entry.
+- As of 5.1.6, failed route planner responses preserve and display backend graph validation details.
 
 Implemented backend pieces:
 
@@ -961,6 +982,9 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route planner client|VITE_ENABLE_ROUTE_PLANNER|fetchChargingPlan|meta.limitations|Route planner failed"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route planner panel|RoutePlannerPanel|static local route|right-side panel|VITE_ENABLE_ROUTE_PLANNER=true"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend recommendation map highlight|station_id|properties.charger_id|ScatterplotLayer|not route drawing"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend recommendation reason labels|offline_fallback|unreachable_fallback|score|estimated_arrival_soc"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend metadata disclosure|meta.source|meta.freshness_label|meta.snapshot_date|meta.limitations"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend graph error display|RoutePlannerApiError|validate_route_request|missing_route|node"
 Select-String -Path D:\fleet\chargeflow-kr\backend\requirements.txt -Pattern "langgraph==1.2.1"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Serializable Route Planner Graph State|JSON-safe payloads|route_polyline|optimizer_response|errors"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
@@ -1007,4 +1031,7 @@ Pass conditions:
 - Frontend route planner client builds `/api/routes/charging-plan`, posts the typed request, keeps the feature flag off by default, and preserves backend limitations for later UI display.
 - Frontend route planner panel is feature-flagged, uses static local route payloads, shows backend response fields, and does not add route drawing or external provider behavior.
 - Frontend recommendation map highlight matches backend station IDs to loaded frontend station features and skips missing stations without inventing coordinates.
+- Frontend recommendation rows display backend reasons, score, and estimated arrival SoC, with fallback recommendations visibly distinguished.
+- Frontend route planner results display backend metadata and every limitation entry without truncation.
+- Frontend route planner failures preserve and display backend graph validation details without inventing route advice.
 - Later strict request schema and optimizer work remains explicitly deferred.
