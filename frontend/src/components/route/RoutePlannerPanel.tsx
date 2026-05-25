@@ -7,6 +7,11 @@ import {
   type RoutePlannerRoute,
 } from '../../lib/routePlanner';
 
+type RoutePlannerPanelProps = {
+  onApplyRecommendations?: (result: RouteChargingPlanResponse) => void;
+  onClearRecommendations?: () => void;
+};
+
 const ROUTE_OPTIONS: Array<RoutePlannerRoute & { label: string }> = [
   {
     id: 'fixture-seoul-daejeon',
@@ -22,7 +27,7 @@ const ROUTE_OPTIONS: Array<RoutePlannerRoute & { label: string }> = [
 
 const CONNECTOR_OPTIONS = ['DC Combo', 'DC', 'CHAdeMO', 'AC Type 2'] as const;
 
-export function RoutePlannerPanel() {
+export function RoutePlannerPanel({ onApplyRecommendations, onClearRecommendations }: RoutePlannerPanelProps = {}) {
   const [routeId, setRouteId] = useState(ROUTE_OPTIONS[0].id ?? '');
   const [batteryKwh, setBatteryKwh] = useState(77.4);
   const [currentSocPercent, setCurrentSocPercent] = useState(64);
@@ -40,6 +45,7 @@ export function RoutePlannerPanel() {
 
   const mutation = useMutation({
     mutationFn: (request: RouteChargingPlanRequest) => fetchChargingPlan(request),
+    onSuccess: (data) => onApplyRecommendations?.(data),
   });
 
   function buildRequest(): RouteChargingPlanRequest {
@@ -73,7 +79,13 @@ export function RoutePlannerPanel() {
     <aside className="route-planner-panel" aria-label="Route planner">
       <div className="assistant-heading">
         <p className="eyebrow">Route planner</p>
-        <button type="button" onClick={() => mutation.reset()}>
+        <button
+          type="button"
+          onClick={() => {
+            mutation.reset();
+            onClearRecommendations?.();
+          }}
+        >
           Clear
         </button>
       </div>
