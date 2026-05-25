@@ -835,6 +835,14 @@ This keeps the endpoint contract discoverable while preserving the graph validat
 - malformed constraints still return node-specific graph errors,
 - later strict request models can be added only if they preserve these error semantics.
 
+### Frontend route planner client
+
+As of 5.1.1, `frontend/src/lib/routePlanner.ts` defines the frontend route planner request and response contract for `POST /api/routes/charging-plan`. It mirrors the backend JSON shape, builds relative or `VITE_API_BASE_URL`-based endpoint URLs, and posts the typed request with JSON headers.
+
+The first frontend route planner surface is client-only and feature-flagged with `VITE_ENABLE_ROUTE_PLANNER=false` by default. No map route drawing, route editing UI, external routing provider, traffic, weather, pricing, reservation, or live charger polling behavior is added in 5.1.1.
+
+The client preserves `meta.limitations` from the backend response for later UI display. Failed backend responses throw `Route planner failed: <status>` so future panels can show typed local failure states without inventing route facts.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -894,6 +902,7 @@ LangGraph dependency decision:
 - As of 4.5.15, the FastAPI route planner endpoint invokes the compiled graph with local station data.
 - As of 4.5.16, the route planner endpoint uses a FastAPI response model while graph nodes remain responsible for request validation.
 - As of 4.5.17, the endpoint uses a pass-through request model for OpenAPI discoverability without preempting graph validation.
+- As of 5.1.1, the frontend has a typed route planner client behind `VITE_ENABLE_ROUTE_PLANNER=false`; it only calls the local backend route planner endpoint.
 
 Implemented backend pieces:
 
@@ -933,6 +942,7 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route planner API endpoint|POST /api/routes/charging-plan|reference_time|status_updated_at|HTTP 400|HTTP 500"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route planner response schema|RouteChargingPlanResponse|RoutePlannerRecommendation|OpenAPI|request validation"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route planner request schema|RouteChargingPlanRequest|pass-through|validate_route_request|validate_vehicle_profile"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route planner client|VITE_ENABLE_ROUTE_PLANNER|fetchChargingPlan|meta.limitations|Route planner failed"
 Select-String -Path D:\fleet\chargeflow-kr\backend\requirements.txt -Pattern "langgraph==1.2.1"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Serializable Route Planner Graph State|JSON-safe payloads|route_polyline|optimizer_response|errors"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
@@ -976,4 +986,5 @@ Pass conditions:
 - Route planner API endpoint invokes the compiled graph, returns final response payloads, derives deterministic reference time when omitted, and maps graph errors to HTTP 400.
 - Route planner response schema is enforced by FastAPI and appears in OpenAPI without taking request validation away from graph nodes.
 - Route planner request schema appears in OpenAPI without taking request validation away from graph nodes.
+- Frontend route planner client builds `/api/routes/charging-plan`, posts the typed request, keeps the feature flag off by default, and preserves backend limitations for later UI display.
 - Later strict request schema and optimizer work remains explicitly deferred.
