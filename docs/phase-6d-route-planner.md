@@ -609,7 +609,7 @@ Known optimizer limitations:
 
 ## Serializable Route Planner Graph State
 
-`backend/route_planner_graph.py` defines the 4.5 graph state contract without importing LangGraph. The state uses only JSON-safe payloads so later graph runs, API responses, tests, and optional checkpointers do not need to serialize dataclasses, tuples, or datetime objects.
+`backend/route_planner_graph.py` defines the 4.5 graph state contract and compiled LangGraph entrypoint. The state uses only JSON-safe payloads so graph runs, API responses, tests, and optional checkpointers do not need to serialize dataclasses, tuples, or datetime objects.
 
 State keys:
 
@@ -766,6 +766,39 @@ Failure behavior:
 - Invalid `optimizer_response.route_id`, `summary`, or `recommendations` returns `invalid_response`.
 - Errors are appended as `{node: "build_response", message, code}` and no final response payload is written.
 
+### Graph helper boundary audit
+
+As of 4.5.12, route planner graph nodes remain orchestration-only:
+
+- `estimate_soc` delegates route energy and SoC formulas to `estimate_route_soc_summary`.
+- `rank_charging_stops` delegates scoring, availability freshness, reliability weighting, stale penalty, fallback selection, and recommendation ordering to `build_stop_optimizer_response`.
+- `build_response` wraps serialized optimizer output and metadata only; it does not recompute summary values or score recommendations.
+- Graph validation helpers may still normalize payload fields and reject invalid numbers, but they must not own route energy formulas, score weights, penalty formulas, fallback score caps, or recommendation sort keys.
+
+Regression tests inspect graph node source to keep optimizer scoring helpers out of `route_planner_graph.py`.
+
+As of 4.5.13, route planner graph output is also compared against direct helper composition with the same deterministic route, vehicle, candidate, metadata, and `reference_time` fixture. The regression executes the graph nodes through `build_response`, then independently composes `filter_candidates_by_route_corridor`, `estimate_route_soc_summary`, and `build_stop_optimizer_response`; the final response payload, optimizer payload, route summary, and candidate list must match exactly.
+
+### LangGraph compiled graph
+
+As of 4.5.14, `backend/route_planner_graph.py` exposes `build_route_planner_graph()`. It builds a LangGraph `StateGraph` with the existing deterministic node order:
+
+```text
+START
+validate_route_request
+validate_vehicle_profile
+build_route_corridor
+find_station_candidates
+estimate_soc
+rank_charging_stops
+build_response
+END
+```
+
+`backend/requirements.txt` pins `langgraph==1.2.1`. The dependency is now justified because the module contains real orchestration nodes and 4.5.13 proved graph output matches direct helper composition. The compiled graph must not introduce new scoring, SoC math, routing, weather, traffic, or metadata logic; it only wires the existing node functions.
+
+Regression tests invoke the compiled graph and a manual node sequence with the same JSON-safe state fixture, then require identical final state and response payloads.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -818,13 +851,12 @@ Required existing pieces:
 
 LangGraph dependency decision:
 
-- As of 4.5.3, do not add `langgraph` to `backend/requirements.txt`.
-- The current deterministic helper chain already owns validation, corridor filtering, SoC math, and ranking without a graph runtime.
-- Add `langgraph` only when `backend/route_planner_graph.py` contains real orchestration nodes for request validation, corridor building, candidate lookup, SoC estimation, stop ranking, and response assembly.
-- Do not add `langgraph` for a thin wrapper that only calls one helper function or duplicates helper math.
-- Graph tests must prove graph output matches the helper-composed output before the dependency is justified.
+- 4.5.3 kept `langgraph` out of `backend/requirements.txt` while the helper chain did not yet need a graph runtime.
+- As of 4.5.14, `langgraph==1.2.1` is pinned because `backend/route_planner_graph.py` now contains real orchestration nodes for request validation, corridor building, candidate lookup, SoC estimation, stop ranking, and response assembly.
+- The compiled graph remains a wiring layer over existing nodes. It must not duplicate helper math, helper scoring, external routing, weather, traffic, or metadata assembly.
+- Graph tests prove the compiled graph output matches both the manual node sequence and the direct helper-composed output.
 
-New implementation work starts in later 4.x tasks:
+Implemented backend pieces:
 
 - `backend/vehicle_profile.py`
 - route corridor filtering helper
@@ -857,7 +889,9 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Charger Penalty Rules|Hard filters|candidate_reachable=false|stale_availability_penalty|offline_fallback|fallback"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Known optimizer limitations|deterministic local ranking signal|not live charger state|not safe stop instructions|Duplicate station cluster"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "External Route API Dependency Review|No route-provider SDK|route.polyline|route.distance_km|Disallowed MVP behavior|credential handling"
-Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "LangGraph dependency decision|do not add `langgraph`|real orchestration nodes|helper-composed output"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "LangGraph dependency decision|langgraph==1.2.1|real orchestration nodes|helper-composed output"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "LangGraph compiled graph|build_route_planner_graph|StateGraph|START|END|manual node sequence"
+Select-String -Path D:\fleet\chargeflow-kr\backend\requirements.txt -Pattern "langgraph==1.2.1"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Serializable Route Planner Graph State|JSON-safe payloads|route_polyline|optimizer_response|errors"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_vehicle_profile|VehicleProfile.to_dict|missing_vehicle|invalid_vehicle|connector preferences"
@@ -866,6 +900,8 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "estimate_soc|estimate_route_soc_summary|route_summary|minimum_required_soc|invalid_soc_estimate"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "rank_charging_stops|StopOptimizerInput|build_stop_optimizer_response|reference_time|invalid_stop_ranking"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "build_response|optimizer_response|meta.limitations|freshness_label|invalid_response"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Graph helper boundary audit|orchestration-only|estimate_route_soc_summary|build_stop_optimizer_response|score weights"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "4.5.13|direct helper composition|filter_candidates_by_route_corridor|final response payload|candidate list"
 rg -n "route API|external route|Directions|directions|OSRM|OpenRouteService|GraphHopper|Google Maps|Mapbox Directions|Naver|Kakao|Tmap|Valhalla|routing provider|route provider" D:\fleet\chargeflow-kr --glob "!frontend/node_modules/**" --glob "!backend/.venv/**" --glob "!backend/.pytest_cache/**"
 ```
 
@@ -883,7 +919,7 @@ Pass conditions:
 - Charger penalty rules define hard filters, penalty inputs, reason allowlist, and fallback labeling.
 - Known optimizer limitations say ranking is not ETA/live state/safe stop instruction, and mark duplicate cluster handling as deferred.
 - External route API dependency review confirms route providers are not required and remain deferred.
-- LangGraph dependency decision prevents an unused dependency until real orchestration nodes and helper-equivalence tests exist.
+- LangGraph dependency decision adds `langgraph==1.2.1` only after real orchestration nodes and helper-equivalence tests exist.
 - Serializable route planner graph state uses JSON-safe payloads and keeps helper dataclasses out of persisted graph state.
 - `validate_route_request` documents normalized route fields and route validation error codes.
 - `validate_vehicle_profile` documents helper-owned vehicle validation and vehicle validation error codes.
@@ -892,4 +928,7 @@ Pass conditions:
 - `estimate_soc` documents helper-owned SoC math, route summary output, and SoC estimate error codes.
 - `rank_charging_stops` documents helper-owned ranking, optimizer payload outputs, deterministic `reference_time`, and stop ranking error codes.
 - `build_response` documents endpoint-ready response assembly, metadata limitations, and final response error codes.
+- Graph helper boundary audit confirms numeric math and scoring remain in helper modules, not graph nodes.
+- Graph output matches direct helper-composed output for the deterministic route/candidate fixture.
+- Compiled LangGraph output matches the manual node sequence for the deterministic route/candidate fixture.
 - Later schema and optimizer work remains explicitly deferred.
