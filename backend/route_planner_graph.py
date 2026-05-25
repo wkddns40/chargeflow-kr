@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from numbers import Real
 from typing import Any, Literal, NotRequired, TypedDict
 
+from langgraph.graph import END, START, StateGraph
 from route_corridor import DEFAULT_CORRIDOR_WIDTH_KM, RoutePolyline, filter_candidates_by_route_corridor
 from stop_optimizer import (
     DEFAULT_MAX_RECOMMENDATIONS,
@@ -94,6 +95,9 @@ class RoutePlannerGraphState(TypedDict, total=False):
     optimizer_response: OptimizerPayload
     response: OptimizerPayload
     errors: list[RoutePlannerErrorPayload]
+
+
+RoutePlannerNode = Callable[[RoutePlannerGraphState], RoutePlannerGraphState]
 
 
 ROUTE_PLANNER_STATE_KEYS: tuple[str, ...] = (
@@ -257,6 +261,29 @@ def build_response(state: RoutePlannerGraphState) -> RoutePlannerGraphState:
         "meta": _response_meta_from_state(state),
     }
     return {"response": response, "errors": errors}
+
+
+ROUTE_PLANNER_GRAPH_NODES: tuple[tuple[GraphNodeName, RoutePlannerNode], ...] = (
+    ("validate_route_request", validate_route_request),
+    ("validate_vehicle_profile", validate_vehicle_profile),
+    ("build_route_corridor", build_route_corridor),
+    ("find_station_candidates", find_station_candidates),
+    ("estimate_soc", estimate_soc),
+    ("rank_charging_stops", rank_charging_stops),
+    ("build_response", build_response),
+)
+
+
+def build_route_planner_graph() -> Any:
+    graph = StateGraph(RoutePlannerGraphState)
+    for node_name, node in ROUTE_PLANNER_GRAPH_NODES:
+        graph.add_node(node_name, node)
+
+    graph.add_edge(START, ROUTE_PLANNER_GRAPH_NODES[0][0])
+    for (node_name, _), (next_node_name, _) in zip(ROUTE_PLANNER_GRAPH_NODES, ROUTE_PLANNER_GRAPH_NODES[1:]):
+        graph.add_edge(node_name, next_node_name)
+    graph.add_edge(ROUTE_PLANNER_GRAPH_NODES[-1][0], END)
+    return graph.compile()
 
 
 def _route_request_error(message: str, code: str) -> RoutePlannerErrorPayload:

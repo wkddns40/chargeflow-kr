@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import ast
+from datetime import datetime, timezone
+import inspect
 import json
 
 import pytest
 
+import route_planner_graph
+from route_corridor import filter_candidates_by_route_corridor
 from route_planner_graph import (
     ROUTE_PLANNER_STATE_KEYS,
     RoutePlannerGraphState,
     build_response,
     build_route_corridor,
+    build_route_planner_graph,
     empty_route_planner_state,
     estimate_soc,
     find_station_candidates,
@@ -16,6 +22,13 @@ from route_planner_graph import (
     validate_route_request,
     validate_vehicle_profile,
 )
+from stop_optimizer import (
+    StopCandidate,
+    StopOptimizerInput,
+    build_stop_optimizer_response,
+    estimate_route_soc_summary,
+)
+from vehicle_profile import VehicleProfile
 
 
 def test_empty_route_planner_state_is_json_serializable() -> None:
@@ -41,6 +54,8 @@ def optimizer_candidate_feature(
     connector_type: str = "DC Combo",
     status: str = "available",
     status_updated_at: str | None = None,
+    lon: float = 127.03,
+    lat: float = 37.5,
     use_charger_aliases: bool = False,
 ) -> dict[str, object]:
     identity = (
@@ -61,7 +76,7 @@ def optimizer_candidate_feature(
 
     return {
         "type": "Feature",
-        "geometry": {"type": "Point", "coordinates": [127.03, 37.5]},
+        "geometry": {"type": "Point", "coordinates": [lon, lat]},
         "properties": properties,
     }
 
@@ -102,6 +117,92 @@ def optimizer_response_payload() -> dict[str, object]:
             }
         ],
     }
+
+
+def vehicle_profile_from_payload(payload: dict[str, object]) -> VehicleProfile:
+    return VehicleProfile(
+        battery_kwh=payload["battery_kwh"],
+        current_soc=payload["current_soc"],
+        target_arrival_soc=payload["target_arrival_soc"],
+        consumption_kwh_per_km=payload["consumption_kwh_per_km"],
+        preferred_connector_types=payload["preferred_connector_types"],
+        max_charging_kw=payload["max_charging_kw"],
+    )
+
+
+def stop_candidate_from_feature(feature: dict[str, object]) -> StopCandidate:
+    properties = feature["properties"]
+    assert isinstance(properties, dict)
+    status_updated_at = properties.get("status_updated_at")
+    return StopCandidate(
+        station_id=str(properties["station_id"]),
+        name=str(properties["name"]),
+        connector_type=str(properties["connector_type"]),
+        max_kw=float(properties["max_kw"]),
+        distance_from_route_km=float(properties["distance_from_route_km"]),
+        route_distance_km=float(properties["route_distance_km"]),
+        status=str(properties["status"]),
+        status_updated_at=status_updated_at if isinstance(status_updated_at, str) else None,
+    )
+
+
+def route_planner_graph_input(reference_time: datetime) -> RoutePlannerGraphState:
+    vehicle_payload = graph_vehicle_payload()
+    route_polyline = [[0.0, 0.0], [0.0, 1.0]]
+    station_features = [
+        optimizer_candidate_feature(
+            "CFL-SYN-00002",
+            56.0,
+            max_kw=50.0,
+            lon=0.0,
+            lat=0.58,
+            status_updated_at="2026-05-23T00:00:00+00:00",
+        ),
+        optimizer_candidate_feature(
+            "CFL-SYN-00001",
+            42.5,
+            max_kw=180.0,
+            lon=0.0,
+            lat=0.43,
+            status_updated_at="2026-05-23T00:00:00+00:00",
+        ),
+    ]
+    for feature in station_features:
+        properties = feature["properties"]
+        assert isinstance(properties, dict)
+        properties["source"] = "synthetic-status-file-sample"
+        properties["snapshot_date"] = "2026-05-19"
+
+    return {
+        "request": {
+            "route": {
+                "id": "fixture-seoul-daejeon",
+                "distance_km": 165.2,
+                "polyline": route_polyline,
+            },
+            "vehicle": vehicle_payload,
+            "constraints": {"corridor_width_km": 2.0, "max_results": 2},
+        },
+        "station_features": station_features,
+        "reference_time": reference_time.isoformat(),
+    }
+
+
+def function_call_names(function: object) -> set[str]:
+    tree = ast.parse(inspect.getsource(function))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                names.add(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                names.add(node.func.attr)
+    return names
+
+
+def has_numeric_operator(function: object) -> bool:
+    tree = ast.parse(inspect.getsource(function))
+    return any(isinstance(node, (ast.BinOp, ast.UnaryOp)) for node in ast.walk(tree))
 
 
 def test_route_planner_graph_state_uses_json_safe_payloads() -> None:
@@ -919,3 +1020,108 @@ def test_build_response_reports_invalid_recommendation_payload() -> None:
             }
         ]
     }
+
+
+def test_route_planner_graph_response_matches_helper_composed_output() -> None:
+    reference_time = datetime(2026, 5, 24, tzinfo=timezone.utc)
+    graph_state = route_planner_graph_input(reference_time)
+    for node in (
+        validate_route_request,
+        validate_vehicle_profile,
+        build_route_corridor,
+        find_station_candidates,
+        estimate_soc,
+        rank_charging_stops,
+        build_response,
+    ):
+        graph_state.update(node(graph_state))
+
+    request = graph_state["request"]
+    vehicle_payload = request["vehicle"]
+    station_features = graph_state["station_features"]
+    direct_candidate_features = filter_candidates_by_route_corridor(
+        station_features,
+        ((0.0, 0.0), (0.0, 1.0)),
+        2.0,
+    )
+    direct_vehicle = vehicle_profile_from_payload(vehicle_payload)
+    direct_summary = estimate_route_soc_summary(165.2, direct_vehicle).to_dict()
+    direct_optimizer_input = StopOptimizerInput(
+        route_id="fixture-seoul-daejeon",
+        route_distance_km=165.2,
+        vehicle=direct_vehicle,
+        candidates=tuple(stop_candidate_from_feature(feature) for feature in direct_candidate_features),
+        max_results=2,
+    )
+    direct_optimizer_response = build_stop_optimizer_response(direct_optimizer_input, reference_time).to_dict()
+    expected_response = {
+        **direct_optimizer_response,
+        "meta": {
+            "source": "synthetic-status-file-sample",
+            "snapshot_date": "2026-05-19",
+            "freshness_label": "fresh",
+            "limitations": list(route_planner_graph.ROUTE_PLANNER_RESPONSE_LIMITATIONS),
+        },
+    }
+
+    assert graph_state["errors"] == []
+    assert graph_state["candidate_features"] == direct_candidate_features
+    assert graph_state["route_summary"] == direct_summary
+    assert graph_state["optimizer_input"] == direct_optimizer_input.to_dict()
+    assert graph_state["optimizer_response"] == direct_optimizer_response
+    assert graph_state["response"] == expected_response
+
+
+def test_compiled_route_planner_graph_matches_manual_node_sequence() -> None:
+    reference_time = datetime(2026, 5, 24, tzinfo=timezone.utc)
+    manual_state = json.loads(json.dumps(route_planner_graph_input(reference_time)))
+    compiled_state = build_route_planner_graph().invoke(json.loads(json.dumps(route_planner_graph_input(reference_time))))
+
+    for _, node in route_planner_graph.ROUTE_PLANNER_GRAPH_NODES:
+        manual_state.update(node(manual_state))
+
+    assert compiled_state == manual_state
+    assert compiled_state["response"] == manual_state["response"]
+    assert compiled_state["errors"] == []
+
+
+def test_estimate_soc_delegates_numeric_math_to_optimizer_helper() -> None:
+    calls = function_call_names(route_planner_graph.estimate_soc)
+
+    assert "estimate_route_soc_summary" in calls
+    assert not has_numeric_operator(route_planner_graph.estimate_soc)
+
+
+def test_rank_charging_stops_delegates_scoring_to_optimizer_helper() -> None:
+    calls = function_call_names(route_planner_graph.rank_charging_stops)
+
+    assert "build_stop_optimizer_response" in calls
+    assert "score_availability" not in calls
+    assert "score_charging_power" not in calls
+    assert "score_reliability" not in calls
+    assert "score_stale_penalty" not in calls
+    assert "select_fallback_candidates" not in calls
+    assert not has_numeric_operator(route_planner_graph.rank_charging_stops)
+
+
+def test_route_planner_graph_imports_only_optimizer_orchestration_helpers() -> None:
+    imported_optimizer_names = {
+        "DEFAULT_MAX_RECOMMENDATIONS",
+        "StopCandidate",
+        "StopOptimizerInput",
+        "build_stop_optimizer_response",
+        "estimate_route_soc_summary",
+    }
+    banned_scoring_names = {
+        "estimate_reachable_segment",
+        "score_availability",
+        "score_charging_power",
+        "score_reliability",
+        "score_stale_penalty",
+        "select_fallback_candidates",
+    }
+
+    module_names = set(vars(route_planner_graph))
+
+    assert imported_optimizer_names <= module_names
+    assert module_names.isdisjoint(banned_scoring_names)
