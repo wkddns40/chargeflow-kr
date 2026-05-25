@@ -22,15 +22,31 @@ body {
 
 .summary-panel,
 .detail-panel,
-.assistant-panel {
-  position: absolute;
-  z-index: 2;
+.assistant-panel,
+.route-planner-panel {
   width: min(360px, calc(100vw - 32px));
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(15, 23, 42, 0.12);
   border-radius: 8px;
   box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
   padding: 18px;
+}
+
+.summary-panel,
+.detail-panel,
+.right-panel-stack {
+  position: absolute;
+  z-index: 2;
+}
+
+.right-panel-stack {
+  top: 16px;
+  right: 16px;
+  width: min(360px, calc(100vw - 32px));
+  display: grid;
+  max-height: calc(100vh - 32px);
+  gap: 14px;
+  overflow: auto;
 }
 
 .summary-panel {
@@ -43,13 +59,12 @@ body {
   bottom: 16px;
 }
 
-.assistant-panel {
-  top: 16px;
-  right: 16px;
+.assistant-panel,
+.route-planner-panel {
+  width: 100%;
+  box-sizing: border-box;
   display: grid;
-  max-height: calc(100vh - 32px);
   gap: 14px;
-  overflow: auto;
 }
 
 .assistant-heading {
@@ -132,6 +147,11 @@ body {
   gap: 10px;
 }
 
+.route-plan-results {
+  display: grid;
+  gap: 12px;
+}
+
 .assistant-result-meta {
   display: flex;
   justify-content: space-between;
@@ -141,7 +161,8 @@ body {
   font-weight: 700;
 }
 
-.assistant-results ol {
+.assistant-results ol,
+.route-plan-results ol {
   display: grid;
   gap: 8px;
   margin: 0;
@@ -149,7 +170,8 @@ body {
   list-style: none;
 }
 
-.assistant-results li {
+.assistant-results li,
+.route-plan-results ol li {
   display: grid;
   gap: 3px;
   border: 1px solid #e2e8f0;
@@ -158,13 +180,25 @@ body {
 }
 
 .assistant-results strong,
-.assistant-results span {
+.assistant-results span,
+.route-plan-results strong,
+.route-plan-results span,
+.route-plan-results li {
   overflow-wrap: anywhere;
 }
 
-.assistant-results span {
+.assistant-results span,
+.route-plan-results span,
+.route-plan-results ul {
   color: #475569;
   font-size: 12px;
+}
+
+.route-plan-results ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
 }
 
 .detail-panel button {
@@ -236,6 +270,7 @@ dd {
 @media (max-width: 760px) {
   .summary-panel,
   .assistant-panel,
+  .route-planner-panel,
   .detail-panel {
     width: calc(100vw - 24px);
     padding: 14px;
@@ -246,14 +281,15 @@ dd {
     left: 12px;
   }
 
-  .assistant-panel {
+  .right-panel-stack {
     top: auto;
     right: 12px;
     bottom: 12px;
+    width: calc(100vw - 24px);
     max-height: 52vh;
   }
 
-  .assistant-enabled .summary-panel {
+  .right-panels-enabled .summary-panel {
     display: none;
   }
 

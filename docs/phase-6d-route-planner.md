@@ -843,6 +843,14 @@ The first frontend route planner surface is client-only and feature-flagged with
 
 The client preserves `meta.limitations` from the backend response for later UI display. Failed backend responses throw `Route planner failed: <status>` so future panels can show typed local failure states without inventing route facts.
 
+### Frontend route planner panel
+
+As of 5.1.2, `frontend/src/components/route/RoutePlannerPanel.tsx` renders the first feature-flagged route planner shell when `VITE_ENABLE_ROUTE_PLANNER=true`. The panel uses the 5.1.1 typed client, submits a static local route fixture plus editable vehicle and constraint inputs, and displays backend summary, recommendation rows, and `meta.limitations`.
+
+The panel stays inside MVP boundaries: it does not draw a route on the map, edit route geometry, call external routing/geocoding providers, fetch traffic or weather, poll live charger state, or invent recommendation explanations beyond backend response fields.
+
+`frontend/src/components/map/MapShell.tsx` stacks the route planner and assistant panels in the same right-side panel area so feature flags do not overlap panels.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -903,6 +911,7 @@ LangGraph dependency decision:
 - As of 4.5.16, the route planner endpoint uses a FastAPI response model while graph nodes remain responsible for request validation.
 - As of 4.5.17, the endpoint uses a pass-through request model for OpenAPI discoverability without preempting graph validation.
 - As of 5.1.1, the frontend has a typed route planner client behind `VITE_ENABLE_ROUTE_PLANNER=false`; it only calls the local backend route planner endpoint.
+- As of 5.1.2, the frontend has a feature-flagged route planner panel shell that submits static local route payloads and displays backend response fields.
 
 Implemented backend pieces:
 
@@ -943,6 +952,7 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route planner response schema|RouteChargingPlanResponse|RoutePlannerRecommendation|OpenAPI|request validation"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route planner request schema|RouteChargingPlanRequest|pass-through|validate_route_request|validate_vehicle_profile"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route planner client|VITE_ENABLE_ROUTE_PLANNER|fetchChargingPlan|meta.limitations|Route planner failed"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route planner panel|RoutePlannerPanel|static local route|right-side panel|VITE_ENABLE_ROUTE_PLANNER=true"
 Select-String -Path D:\fleet\chargeflow-kr\backend\requirements.txt -Pattern "langgraph==1.2.1"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Serializable Route Planner Graph State|JSON-safe payloads|route_polyline|optimizer_response|errors"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
@@ -987,4 +997,5 @@ Pass conditions:
 - Route planner response schema is enforced by FastAPI and appears in OpenAPI without taking request validation away from graph nodes.
 - Route planner request schema appears in OpenAPI without taking request validation away from graph nodes.
 - Frontend route planner client builds `/api/routes/charging-plan`, posts the typed request, keeps the feature flag off by default, and preserves backend limitations for later UI display.
+- Frontend route planner panel is feature-flagged, uses static local route payloads, shows backend response fields, and does not add route drawing or external provider behavior.
 - Later strict request schema and optimizer work remains explicitly deferred.

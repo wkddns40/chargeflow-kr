@@ -8,10 +8,12 @@ import { INITIAL_VIEW_STATE, MAP_STYLE_URL } from '../../constants/viewport';
 import { getValidData, type ViewportSize } from '../../lib/geo';
 import { isViewportStationsFlagEnabled, useViewportStations } from '../../hooks/useViewportStations';
 import { SearchAssistantPanel } from '../search/SearchAssistantPanel';
+import { RoutePlannerPanel } from '../route/RoutePlannerPanel';
 
 type MapShellProps = {
   stations: ChargerFeature[];
   assistantSearchEnabled?: boolean;
+  routePlannerEnabled?: boolean;
 };
 
 const STATUS_COLORS: Record<ChargerFeature['properties']['status'], [number, number, number, number]> = {
@@ -21,7 +23,7 @@ const STATUS_COLORS: Record<ChargerFeature['properties']['status'], [number, num
   unknown: [112, 122, 138, 200],
 };
 
-export function MapShell({ stations, assistantSearchEnabled = false }: MapShellProps) {
+export function MapShell({ stations, assistantSearchEnabled = false, routePlannerEnabled = false }: MapShellProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
   const [viewportSize, setViewportSize] = useState<ViewportSize>({ width: 1024, height: 768 });
@@ -37,6 +39,7 @@ export function MapShell({ stations, assistantSearchEnabled = false }: MapShellP
   const layerStations = assistantResults ?? baseStations;
   const validStations = useMemo(() => getValidData(layerStations), [layerStations]);
   const dataMode = viewportStations.enabled ? 'Viewport API' : import.meta.env.VITE_DEMO_MODE === 'false' ? 'API' : 'Static demo';
+  const rightPanelsEnabled = assistantSearchEnabled || routePlannerEnabled;
 
   useEffect(() => {
     if (!viewportStationsEnabled || !shellRef.current) return;
@@ -70,7 +73,7 @@ export function MapShell({ stations, assistantSearchEnabled = false }: MapShellP
   );
 
   return (
-    <div ref={shellRef} className={`map-shell${assistantSearchEnabled ? ' assistant-enabled' : ''}`}>
+    <div ref={shellRef} className={`map-shell${rightPanelsEnabled ? ' right-panels-enabled' : ''}`}>
       <DeckGL
         layers={[stationLayer]}
         viewState={viewState}
@@ -95,14 +98,19 @@ export function MapShell({ stations, assistantSearchEnabled = false }: MapShellP
         </dl>
       </aside>
 
-      {assistantSearchEnabled && (
-        <SearchAssistantPanel
-          onApplyResults={(features) => {
-            setAssistantResults(features);
-            setSelected(null);
-          }}
-          onClearResults={() => setAssistantResults(null)}
-        />
+      {rightPanelsEnabled && (
+        <div className="right-panel-stack">
+          {assistantSearchEnabled && (
+            <SearchAssistantPanel
+              onApplyResults={(features) => {
+                setAssistantResults(features);
+                setSelected(null);
+              }}
+              onClearResults={() => setAssistantResults(null)}
+            />
+          )}
+          {routePlannerEnabled && <RoutePlannerPanel />}
+        </div>
       )}
 
       {selected && (
