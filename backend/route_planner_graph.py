@@ -203,6 +203,7 @@ def find_station_candidates(state: RoutePlannerGraphState) -> RoutePlannerGraphS
             station_features,
             _route_polyline_from_payload(route_corridor["polyline"]),
             route_corridor["corridor_width_km"],
+            _route_total_distance_from_state(state),
         )
     except ValueError as exc:
         return {"errors": [*errors, _station_candidates_error(str(exc), "invalid_station_candidates")]}
@@ -385,6 +386,13 @@ def _route_corridor_from_state(state: RoutePlannerGraphState) -> RouteCorridorPa
             "route_corridor.corridor_width_km",
         ),
     }
+
+
+def _route_total_distance_from_state(state: RoutePlannerGraphState) -> float | None:
+    value = state.get("route_distance_km")
+    if value is None:
+        return None
+    return _validate_positive_number(value, "route_distance_km")
 
 
 def _station_features_from_state(state: RoutePlannerGraphState) -> list[FeaturePayload]:

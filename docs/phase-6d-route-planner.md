@@ -115,7 +115,7 @@ Validation notes for later 4.2 implementation:
 
 ## Route Request and Response Schema
 
-Future route planner endpoint:
+Route planner endpoint:
 
 ```text
 POST /api/routes/charging-plan
@@ -159,6 +159,7 @@ Request fields:
 | `vehicle` | object | yes | Vehicle profile schema from this document. |
 | `constraints.corridor_width_km` | number | no | Search width around the route. Backend default is `3.0` km. |
 | `constraints.max_results` | integer | no | Maximum recommendation count returned after sorting. |
+| `reference_time` | string | no | Optional ISO 8601 datetime for deterministic freshness scoring. If omitted, the endpoint uses the latest local station `status_updated_at` timestamp. |
 
 ### Route polyline fixture shape
 
@@ -198,7 +199,7 @@ The value is a local planning assumption, not a provider-derived route quality s
 
 This is deterministic local geometry for MVP candidate filtering. It is not turn-by-turn routing, travel-time estimation, or provider-grade road-network distance.
 
-Candidate filtering uses `filter_candidates_by_route_corridor(features, polyline, corridor_width_km)`. It returns GeoJSON station feature copies inside the corridor and adds `properties.distance_from_route_km` for later ranking. Input features are not mutated.
+Candidate filtering uses `filter_candidates_by_route_corridor(features, polyline, corridor_width_km, route_total_distance_km=None)`. It returns GeoJSON station feature copies inside the corridor and adds `properties.distance_from_route_km` for later ranking. When `route_total_distance_km` is provided and a feature does not already have `properties.route_distance_km`, it also estimates candidate progress along the provided polyline and scales that progress to the declared route distance. Input features are not mutated.
 
 ### Numeric precision assumptions
 
@@ -799,6 +800,20 @@ END
 
 Regression tests invoke the compiled graph and a manual node sequence with the same JSON-safe state fixture, then require identical final state and response payloads.
 
+### Route planner API endpoint
+
+As of 4.5.15, `backend/app/api/routes.py` exposes `POST /api/routes/charging-plan`. The endpoint loads the local station fixture, chooses a deterministic `reference_time`, invokes `build_route_planner_graph()`, and returns only the final graph `response` payload.
+
+Endpoint behavior:
+
+- Caller-provided `reference_time` is passed to the graph for deterministic freshness scoring.
+- If `reference_time` is omitted, the endpoint derives it from the latest local station `status_updated_at` timestamp.
+- Route-corridor filtering fills missing candidate `route_distance_km` from local polyline progress so raw station fixtures can be ranked.
+- Graph validation errors return HTTP 400 with node-scoped error payloads.
+- Fixture load or malformed local station data errors return HTTP 500.
+
+The endpoint remains inside MVP boundaries: it does not call external route APIs, infer route alternatives, fetch live traffic/weather, or perform live charger polling.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -855,6 +870,7 @@ LangGraph dependency decision:
 - As of 4.5.14, `langgraph==1.2.1` is pinned because `backend/route_planner_graph.py` now contains real orchestration nodes for request validation, corridor building, candidate lookup, SoC estimation, stop ranking, and response assembly.
 - The compiled graph remains a wiring layer over existing nodes. It must not duplicate helper math, helper scoring, external routing, weather, traffic, or metadata assembly.
 - Graph tests prove the compiled graph output matches both the manual node sequence and the direct helper-composed output.
+- As of 4.5.15, the FastAPI route planner endpoint invokes the compiled graph with local station data.
 
 Implemented backend pieces:
 
@@ -891,6 +907,7 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "External Route API Dependency Review|No route-provider SDK|route.polyline|route.distance_km|Disallowed MVP behavior|credential handling"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "LangGraph dependency decision|langgraph==1.2.1|real orchestration nodes|helper-composed output"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "LangGraph compiled graph|build_route_planner_graph|StateGraph|START|END|manual node sequence"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route planner API endpoint|POST /api/routes/charging-plan|reference_time|status_updated_at|HTTP 400|HTTP 500"
 Select-String -Path D:\fleet\chargeflow-kr\backend\requirements.txt -Pattern "langgraph==1.2.1"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Serializable Route Planner Graph State|JSON-safe payloads|route_polyline|optimizer_response|errors"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
@@ -931,4 +948,5 @@ Pass conditions:
 - Graph helper boundary audit confirms numeric math and scoring remain in helper modules, not graph nodes.
 - Graph output matches direct helper-composed output for the deterministic route/candidate fixture.
 - Compiled LangGraph output matches the manual node sequence for the deterministic route/candidate fixture.
+- Route planner API endpoint invokes the compiled graph, returns final response payloads, derives deterministic reference time when omitted, and maps graph errors to HTTP 400.
 - Later schema and optimizer work remains explicitly deferred.

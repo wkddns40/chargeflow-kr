@@ -8,6 +8,7 @@ from route_corridor import (
     distance_to_route_km,
     filter_candidates_by_route_corridor,
     is_within_route_corridor,
+    route_distance_at_point_km,
 )
 
 
@@ -50,6 +51,32 @@ def test_filter_candidates_by_route_corridor_includes_inside_station() -> None:
     assert [item["properties"]["charger_id"] for item in results] == ["inside-gangnam"]
     assert 0 < results[0]["properties"]["distance_from_route_km"] < DEFAULT_CORRIDOR_WIDTH_KM
     assert "distance_from_route_km" not in station["properties"]
+
+
+def test_route_distance_at_point_scales_progress_to_declared_route_distance() -> None:
+    route: RoutePolyline = ((0.0, 0.0), (0.0, 1.0))
+
+    assert route_distance_at_point_km((0.0, 0.25), route, 100.0) == pytest.approx(25.0)
+
+
+def test_filter_candidates_by_route_corridor_adds_missing_route_distance() -> None:
+    route: RoutePolyline = ((0.0, 0.0), (0.0, 1.0))
+    station = feature("inside-route", 0.0, 0.25)
+
+    results = filter_candidates_by_route_corridor([station], route, route_total_distance_km=100.0)
+
+    assert results[0]["properties"]["route_distance_km"] == pytest.approx(25.0)
+    assert "route_distance_km" not in station["properties"]
+
+
+def test_filter_candidates_by_route_corridor_preserves_existing_route_distance() -> None:
+    route: RoutePolyline = ((0.0, 0.0), (0.0, 1.0))
+    station = feature("inside-route", 0.0, 0.25)
+    station["properties"]["route_distance_km"] = 42.5
+
+    results = filter_candidates_by_route_corridor([station], route, route_total_distance_km=100.0)
+
+    assert results[0]["properties"]["route_distance_km"] == 42.5
 
 
 def test_far_station_is_outside_default_corridor() -> None:
