@@ -744,6 +744,28 @@ Failure behavior:
 - Candidate Feature rows missing required optimizer fields return `invalid_stop_ranking`.
 - Errors are appended as `{node: "rank_charging_stops", message, code}` and no optimizer payload is written.
 
+### `build_response` node
+
+`build_response(state)` reads serialized `optimizer_response` and wraps it as the endpoint-ready route planner `response`. It does not re-rank recommendations, recompute summary values, or mutate optimizer scoring output.
+
+Successful update keys:
+
+- `response`: optimizer `route_id`, `summary`, and `recommendations`, plus response `meta`.
+- `errors`: existing errors, unchanged.
+
+Response metadata:
+
+- `meta.source` comes from candidate or station Feature `properties.source` when present, otherwise defaults to `local-dataset`.
+- `meta.snapshot_date` is copied from candidate or station Feature `properties.snapshot_date` when present.
+- `meta.freshness_label` is inferred only from optimizer recommendation reasons such as `fresh_availability`, `aging_availability`, `stale_availability_penalty`, or `unknown_availability_penalty`.
+- `meta.limitations` always includes the MVP route, traffic, weather, imported availability, and fallback limitations documented in the response schema.
+
+Failure behavior:
+
+- Missing or malformed `optimizer_response` returns `invalid_response`.
+- Invalid `optimizer_response.route_id`, `summary`, or `recommendations` returns `invalid_response`.
+- Errors are appended as `{node: "build_response", message, code}` and no final response payload is written.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -843,6 +865,7 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "find_station_candidates|filter_candidates_by_route_corridor|station_features|candidate_features|invalid_station_candidates"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "estimate_soc|estimate_route_soc_summary|route_summary|minimum_required_soc|invalid_soc_estimate"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "rank_charging_stops|StopOptimizerInput|build_stop_optimizer_response|reference_time|invalid_stop_ranking"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "build_response|optimizer_response|meta.limitations|freshness_label|invalid_response"
 rg -n "route API|external route|Directions|directions|OSRM|OpenRouteService|GraphHopper|Google Maps|Mapbox Directions|Naver|Kakao|Tmap|Valhalla|routing provider|route provider" D:\fleet\chargeflow-kr --glob "!frontend/node_modules/**" --glob "!backend/.venv/**" --glob "!backend/.pytest_cache/**"
 ```
 
@@ -868,4 +891,5 @@ Pass conditions:
 - `find_station_candidates` documents corridor-filtered station feature output and station candidate error codes.
 - `estimate_soc` documents helper-owned SoC math, route summary output, and SoC estimate error codes.
 - `rank_charging_stops` documents helper-owned ranking, optimizer payload outputs, deterministic `reference_time`, and stop ranking error codes.
+- `build_response` documents endpoint-ready response assembly, metadata limitations, and final response error codes.
 - Later schema and optimizer work remains explicitly deferred.
