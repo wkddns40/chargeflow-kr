@@ -887,6 +887,12 @@ As of 5.2.2, applying a route planner response also fits the map viewport to the
 
 This is a visual smoke helper, not route optimization. It does not fetch route alternatives, snap to roads, infer missing geometry, or claim travel-time quality. Incomplete route polylines or invalid viewport sizes keep the current map view unchanged.
 
+### Frontend recommendation selection smoke
+
+As of 5.2.3, route planner recommendation rows can select a matching loaded station on the map and open the existing station detail panel. The selection path uses only backend `recommendations[].station_id` values matched against loaded frontend station `properties.charger_id` values.
+
+Missing recommendation station IDs are ignored instead of inventing coordinates, fetching external station details, or opening synthetic map popups. The recommendation selection hook does not change route ranking, route geometry, viewport fitting, traffic, weather, or live charger claims.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -954,6 +960,7 @@ LangGraph dependency decision:
 - As of 5.1.6, failed route planner responses preserve and display backend graph validation details.
 - As of 5.2.1, successful route planner responses render the submitted local route polyline as a map `PathLayer` without external route providers.
 - As of 5.2.2, successful route planner responses fit the map viewport to the submitted local route polyline bounds without external route providers.
+- As of 5.2.3, route planner recommendation rows can open the existing station detail panel only for matching loaded station IDs.
 
 Implemented backend pieces:
 
@@ -1001,6 +1008,7 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend graph error display|RoutePlannerApiError|validate_route_request|missing_route|node"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route path smoke|PathLayer|request.route.polyline|external providers|route path"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route fit smoke|polyline bounds|Web Mercator|current map view|external route providers"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend recommendation selection smoke|recommendations\\[\\]\\.station_id|properties.charger_id|station detail panel|Missing recommendation station IDs"
 Select-String -Path D:\fleet\chargeflow-kr\backend\requirements.txt -Pattern "langgraph==1.2.1"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Serializable Route Planner Graph State|JSON-safe payloads|route_polyline|optimizer_response|errors"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
@@ -1052,4 +1060,5 @@ Pass conditions:
 - Frontend route planner failures preserve and display backend graph validation details without inventing route advice.
 - Frontend route path smoke renders only the submitted local route polyline and clears it with route planner results.
 - Frontend route fit smoke uses only submitted local route bounds and keeps the current map view unchanged for incomplete route inputs.
+- Frontend recommendation selection opens only existing loaded station details and ignores missing recommendation station IDs without inventing coordinates.
 - Later strict request schema and optimizer work remains explicitly deferred.

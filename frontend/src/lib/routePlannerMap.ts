@@ -84,6 +84,10 @@ export function matchRouteRecommendationStations(
   });
 }
 
+export function findRouteRecommendationStation(stations: ChargerFeature[], stationId: string): ChargerFeature | null {
+  return stations.find((station) => station.properties.charger_id === stationId) ?? null;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }

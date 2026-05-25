@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChargerFeature } from '../types/charger';
 import {
+  findRouteRecommendationStation,
   getRouteFitViewState,
   getRoutePathLayerData,
   getRouteRecommendationStationIds,
@@ -88,6 +89,13 @@ describe('matchRouteRecommendationStations', () => {
     const matches = matchRouteRecommendationStations([STATION_A, STATION_B], getRouteRecommendationStationIds(PLAN_RESULT));
 
     expect(matches).toEqual([STATION_B]);
+  });
+});
+
+describe('findRouteRecommendationStation', () => {
+  it('returns the loaded recommendation station by charger ID', () => {
+    expect(findRouteRecommendationStation([STATION_B], 'CFL-SYN-002')).toBe(STATION_B);
+    expect(findRouteRecommendationStation([STATION_B], 'CFL-SYN-999')).toBeNull();
   });
 });
 

@@ -18,6 +18,7 @@ import {
 
 type RoutePlannerPanelProps = {
   onApplyPlan?: (result: RouteChargingPlanResponse, route: RoutePlannerRoute) => void;
+  onSelectRecommendation?: (stationId: string) => void;
   onClearRecommendations?: () => void;
 };
 
@@ -36,7 +37,11 @@ const ROUTE_OPTIONS: Array<RoutePlannerRoute & { label: string }> = [
 
 const CONNECTOR_OPTIONS = ['DC Combo', 'DC', 'CHAdeMO', 'AC Type 2'] as const;
 
-export function RoutePlannerPanel({ onApplyPlan, onClearRecommendations }: RoutePlannerPanelProps = {}) {
+export function RoutePlannerPanel({
+  onApplyPlan,
+  onSelectRecommendation,
+  onClearRecommendations,
+}: RoutePlannerPanelProps = {}) {
   const [routeId, setRouteId] = useState(ROUTE_OPTIONS[0].id ?? '');
   const [batteryKwh, setBatteryKwh] = useState(77.4);
   const [currentSocPercent, setCurrentSocPercent] = useState(64);
@@ -218,7 +223,7 @@ export function RoutePlannerPanel({ onApplyPlan, onClearRecommendations }: Route
       </form>
 
       {mutation.isError && <RoutePlanError error={mutation.error} />}
-      {mutation.data && <RoutePlanResult result={mutation.data} />}
+      {mutation.data && <RoutePlanResult result={mutation.data} onSelectRecommendation={onSelectRecommendation} />}
     </aside>
   );
 }
@@ -236,7 +241,13 @@ function RoutePlanError({ error }: { error: unknown }) {
   );
 }
 
-function RoutePlanResult({ result }: { result: RouteChargingPlanResponse }) {
+function RoutePlanResult({
+  result,
+  onSelectRecommendation,
+}: {
+  result: RouteChargingPlanResponse;
+  onSelectRecommendation?: (stationId: string) => void;
+}) {
   return (
     <div className="route-plan-results">
       <dl>
@@ -267,23 +278,29 @@ function RoutePlanResult({ result }: { result: RouteChargingPlanResponse }) {
               key={recommendation.station_id}
               className={hasFallbackReason(recommendation.reasons) ? 'route-plan-fallback' : undefined}
             >
-              <strong>{recommendation.name}</strong>
-              <span>
-                {recommendation.max_kw} kW / {recommendation.connector_type}
-              </span>
-              <span>
-                {recommendation.route_distance_km.toFixed(1)} km route /{' '}
-                {recommendation.distance_from_route_km.toFixed(1)} km detour
-              </span>
-              <span>
-                Arrival {formatRoutePlannerSoc(recommendation.estimated_arrival_soc)} / score{' '}
-                {formatRoutePlannerScore(recommendation.score)}
-              </span>
-              <div className="route-plan-reasons">
-                {recommendation.reasons.map((reason) => (
-                  <span key={reason}>{formatRoutePlannerReason(reason)}</span>
-                ))}
-              </div>
+              <button
+                type="button"
+                className="route-plan-stop-button"
+                onClick={() => onSelectRecommendation?.(recommendation.station_id)}
+              >
+                <strong>{recommendation.name}</strong>
+                <span>
+                  {recommendation.max_kw} kW / {recommendation.connector_type}
+                </span>
+                <span>
+                  {recommendation.route_distance_km.toFixed(1)} km route /{' '}
+                  {recommendation.distance_from_route_km.toFixed(1)} km detour
+                </span>
+                <span>
+                  Arrival {formatRoutePlannerSoc(recommendation.estimated_arrival_soc)} / score{' '}
+                  {formatRoutePlannerScore(recommendation.score)}
+                </span>
+                <div className="route-plan-reasons">
+                  {recommendation.reasons.map((reason) => (
+                    <span key={reason}>{formatRoutePlannerReason(reason)}</span>
+                  ))}
+                </div>
+              </button>
             </li>
           ))}
         </ol>

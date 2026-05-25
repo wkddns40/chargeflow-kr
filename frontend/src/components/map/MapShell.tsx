@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DeckGL from '@deck.gl/react';
 import { Map } from 'react-map-gl/maplibre';
 import { PathLayer, ScatterplotLayer } from '@deck.gl/layers';
@@ -8,6 +8,7 @@ import { INITIAL_VIEW_STATE, MAP_STYLE_URL } from '../../constants/viewport';
 import { getValidData, type ViewportSize } from '../../lib/geo';
 import type { RouteChargingPlanResponse, RoutePlannerRoute } from '../../lib/routePlanner';
 import {
+  findRouteRecommendationStation,
   getRouteFitViewState,
   getRoutePathLayerData,
   getRouteRecommendationStationIds,
@@ -57,6 +58,15 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
   const routePathData = useMemo(() => getRoutePathLayerData(routePlanRoute), [routePlanRoute]);
   const dataMode = viewportStations.enabled ? 'Viewport API' : import.meta.env.VITE_DEMO_MODE === 'false' ? 'API' : 'Static demo';
   const rightPanelsEnabled = assistantSearchEnabled || routePlannerEnabled;
+  const handleSelectRouteRecommendation = useCallback(
+    (stationId: string) => {
+      const station = findRouteRecommendationStation(routeRecommendationStations, stationId);
+      if (station) {
+        setSelected(station);
+      }
+    },
+    [routeRecommendationStations],
+  );
 
   useEffect(() => {
     if ((!viewportStationsEnabled && !routePlannerEnabled) || !shellRef.current) return;
@@ -175,6 +185,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
                 setRoutePlanRoute(route);
                 setViewState((currentViewState) => getRouteFitViewState(route, viewportSize, currentViewState));
               }}
+              onSelectRecommendation={handleSelectRouteRecommendation}
               onClearRecommendations={() => {
                 setRoutePlanResult(null);
                 setRoutePlanRoute(null);
