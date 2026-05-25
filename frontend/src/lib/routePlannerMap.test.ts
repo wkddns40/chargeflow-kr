@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ChargerFeature } from '../types/charger';
-import { getRouteRecommendationStationIds, matchRouteRecommendationStations } from './routePlannerMap';
-import type { RouteChargingPlanResponse } from './routePlanner';
+import {
+  getRouteFitViewState,
+  getRoutePathLayerData,
+  getRouteRecommendationStationIds,
+  matchRouteRecommendationStations,
+} from './routePlannerMap';
+import type { RouteChargingPlanResponse, RoutePlannerRoute } from './routePlanner';
 
 const STATION_A: ChargerFeature = {
   type: 'Feature',
@@ -83,5 +88,79 @@ describe('matchRouteRecommendationStations', () => {
     const matches = matchRouteRecommendationStations([STATION_A, STATION_B], getRouteRecommendationStationIds(PLAN_RESULT));
 
     expect(matches).toEqual([STATION_B]);
+  });
+});
+
+describe('getRoutePathLayerData', () => {
+  it('returns path layer data from a valid provided route', () => {
+    const pathData = getRoutePathLayerData({
+      id: 'fixture-seoul-daejeon',
+      distance_km: 165.2,
+      polyline: [
+        [126.978, 37.5665],
+        [127.0276, 37.4979],
+      ],
+    });
+
+    expect(pathData).toEqual([
+      {
+        id: 'fixture-seoul-daejeon',
+        path: [
+          [126.978, 37.5665],
+          [127.0276, 37.4979],
+        ],
+      },
+    ]);
+  });
+
+  it('does not create a path for missing or incomplete routes', () => {
+    expect(getRoutePathLayerData(null)).toEqual([]);
+    expect(getRoutePathLayerData({ distance_km: 1, polyline: [[126.978, 37.5665]] })).toEqual([]);
+  });
+});
+
+describe('getRouteFitViewState', () => {
+  const fallback = {
+    longitude: 127.0517,
+    latitude: 37.5187,
+    zoom: 11.8,
+    pitch: 0,
+    bearing: 0,
+  };
+
+  it('centers and zooms the map around the provided route bounds', () => {
+    const viewState = getRouteFitViewState(
+      {
+        id: 'fixture-seoul-daejeon',
+        distance_km: 165.2,
+        polyline: [
+          [126.978, 37.5665],
+          [127.0276, 37.4979],
+          [127.3845, 36.3504],
+        ],
+      },
+      { width: 1024, height: 768 },
+      fallback,
+    );
+
+    expect(viewState.longitude).toBeCloseTo((126.978 + 127.3845) / 2);
+    expect(viewState.latitude).toBeCloseTo((36.3504 + 37.5665) / 2);
+    expect(viewState.zoom).toBeLessThan(fallback.zoom);
+    expect(viewState.pitch).toBe(fallback.pitch);
+    expect(viewState.bearing).toBe(fallback.bearing);
+  });
+
+  it('keeps the fallback view for incomplete routes or invalid viewports', () => {
+    const route: RoutePlannerRoute = { distance_km: 1, polyline: [[126.978, 37.5665]] };
+    const completeRoute: RoutePlannerRoute = {
+      distance_km: 1,
+      polyline: [
+        [126.978, 37.5665],
+        [127.0276, 37.4979],
+      ],
+    };
+
+    expect(getRouteFitViewState(route, { width: 1024, height: 768 }, fallback)).toBe(fallback);
+    expect(getRouteFitViewState(completeRoute, { width: 0, height: 768 }, fallback)).toBe(fallback);
   });
 });

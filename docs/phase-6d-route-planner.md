@@ -875,6 +875,18 @@ As of 5.1.6, `fetchChargingPlan()` preserves failed backend response details in 
 
 String backend errors, such as local fixture load failures, are also displayed. The frontend does not rewrite errors into route advice, retry with inferred data, hide node codes, or turn validation failures into recommendations.
 
+### Frontend route path smoke
+
+As of 5.2.1, successful route planner responses also apply the submitted local route polyline to the map as a deck.gl `PathLayer`. This renders the provided request route shape behind station and recommendation point layers so the map can show route context with recommended stops.
+
+The route path layer uses only `request.route.polyline` from the panel's static local route payload. It does not fetch, geocode, snap, simplify, infer, or redraw route geometry from external providers. Clearing the route planner panel clears both recommendation highlights and the route path.
+
+### Frontend route fit smoke
+
+As of 5.2.2, applying a route planner response also fits the map viewport to the submitted local route polyline bounds. The fit calculation uses only the provided lon/lat points, current panel viewport size, and a bounded Web Mercator zoom estimate.
+
+This is a visual smoke helper, not route optimization. It does not fetch route alternatives, snap to roads, infer missing geometry, or claim travel-time quality. Incomplete route polylines or invalid viewport sizes keep the current map view unchanged.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -940,6 +952,8 @@ LangGraph dependency decision:
 - As of 5.1.4, route planner recommendation rows display backend reason codes, score, and estimated arrival SoC with fallback rows visually distinguished.
 - As of 5.1.5, route planner results display response metadata and preserve every backend limitation entry.
 - As of 5.1.6, failed route planner responses preserve and display backend graph validation details.
+- As of 5.2.1, successful route planner responses render the submitted local route polyline as a map `PathLayer` without external route providers.
+- As of 5.2.2, successful route planner responses fit the map viewport to the submitted local route polyline bounds without external route providers.
 
 Implemented backend pieces:
 
@@ -985,6 +999,8 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend recommendation reason labels|offline_fallback|unreachable_fallback|score|estimated_arrival_soc"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend metadata disclosure|meta.source|meta.freshness_label|meta.snapshot_date|meta.limitations"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend graph error display|RoutePlannerApiError|validate_route_request|missing_route|node"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route path smoke|PathLayer|request.route.polyline|external providers|route path"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route fit smoke|polyline bounds|Web Mercator|current map view|external route providers"
 Select-String -Path D:\fleet\chargeflow-kr\backend\requirements.txt -Pattern "langgraph==1.2.1"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Serializable Route Planner Graph State|JSON-safe payloads|route_polyline|optimizer_response|errors"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
@@ -1034,4 +1050,6 @@ Pass conditions:
 - Frontend recommendation rows display backend reasons, score, and estimated arrival SoC, with fallback recommendations visibly distinguished.
 - Frontend route planner results display backend metadata and every limitation entry without truncation.
 - Frontend route planner failures preserve and display backend graph validation details without inventing route advice.
+- Frontend route path smoke renders only the submitted local route polyline and clears it with route planner results.
+- Frontend route fit smoke uses only submitted local route bounds and keeps the current map view unchanged for incomplete route inputs.
 - Later strict request schema and optimizer work remains explicitly deferred.
