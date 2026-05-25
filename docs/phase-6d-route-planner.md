@@ -814,6 +814,27 @@ Endpoint behavior:
 
 The endpoint remains inside MVP boundaries: it does not call external route APIs, infer route alternatives, fetch live traffic/weather, or perform live charger polling.
 
+### Route planner response schema
+
+As of 4.5.16, `backend/app/schemas/route_planner.py` defines the FastAPI response model for `POST /api/routes/charging-plan`. The endpoint still accepts a raw dictionary request so graph nodes own request validation and keep node-scoped HTTP 400 errors. The response is schema-checked before serialization and appears in OpenAPI as `RouteChargingPlanResponse`.
+
+Schema coverage:
+
+- `RoutePlannerSummary` covers route distance, energy estimate, SoC fields, and `reachable_without_stop`.
+- `RoutePlannerRecommendation` covers station identity, connector, power, route/detour distance, arrival SoC, score, and reasons.
+- `RoutePlannerResponseMeta` covers local source, optional snapshot/freshness labels, and MVP limitations.
+
+### Route planner request schema
+
+As of 4.5.17, `RouteChargingPlanRequest` documents the FastAPI request body for `POST /api/routes/charging-plan` and appears in OpenAPI. It is intentionally pass-through: `route`, `vehicle`, `constraints`, and `reference_time` are accepted without Pydantic numeric or nested type validation so graph nodes continue to own request normalization and node-scoped HTTP 400 errors.
+
+This keeps the endpoint contract discoverable while preserving the graph validation surface:
+
+- malformed or missing `route` still returns `validate_route_request` errors,
+- malformed or missing `vehicle` still returns `validate_vehicle_profile` errors,
+- malformed constraints still return node-specific graph errors,
+- later strict request models can be added only if they preserve these error semantics.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -871,6 +892,8 @@ LangGraph dependency decision:
 - The compiled graph remains a wiring layer over existing nodes. It must not duplicate helper math, helper scoring, external routing, weather, traffic, or metadata assembly.
 - Graph tests prove the compiled graph output matches both the manual node sequence and the direct helper-composed output.
 - As of 4.5.15, the FastAPI route planner endpoint invokes the compiled graph with local station data.
+- As of 4.5.16, the route planner endpoint uses a FastAPI response model while graph nodes remain responsible for request validation.
+- As of 4.5.17, the endpoint uses a pass-through request model for OpenAPI discoverability without preempting graph validation.
 
 Implemented backend pieces:
 
@@ -908,6 +931,8 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "LangGraph dependency decision|langgraph==1.2.1|real orchestration nodes|helper-composed output"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "LangGraph compiled graph|build_route_planner_graph|StateGraph|START|END|manual node sequence"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route planner API endpoint|POST /api/routes/charging-plan|reference_time|status_updated_at|HTTP 400|HTTP 500"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route planner response schema|RouteChargingPlanResponse|RoutePlannerRecommendation|OpenAPI|request validation"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route planner request schema|RouteChargingPlanRequest|pass-through|validate_route_request|validate_vehicle_profile"
 Select-String -Path D:\fleet\chargeflow-kr\backend\requirements.txt -Pattern "langgraph==1.2.1"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Serializable Route Planner Graph State|JSON-safe payloads|route_polyline|optimizer_response|errors"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
@@ -949,4 +974,6 @@ Pass conditions:
 - Graph output matches direct helper-composed output for the deterministic route/candidate fixture.
 - Compiled LangGraph output matches the manual node sequence for the deterministic route/candidate fixture.
 - Route planner API endpoint invokes the compiled graph, returns final response payloads, derives deterministic reference time when omitted, and maps graph errors to HTTP 400.
-- Later schema and optimizer work remains explicitly deferred.
+- Route planner response schema is enforced by FastAPI and appears in OpenAPI without taking request validation away from graph nodes.
+- Route planner request schema appears in OpenAPI without taking request validation away from graph nodes.
+- Later strict request schema and optimizer work remains explicitly deferred.

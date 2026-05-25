@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.stations import load_station_features
+from app.schemas.route_planner import RouteChargingPlanRequest, RouteChargingPlanResponse
 from route_planner_graph import build_route_planner_graph
 from station_query import Feature
 
@@ -19,14 +20,15 @@ def compiled_route_planner_graph() -> Any:
     return build_route_planner_graph()
 
 
-@router.post("/routes/charging-plan")
-def create_charging_plan(payload: dict[str, Any]) -> dict[str, Any]:
+@router.post("/routes/charging-plan", response_model=RouteChargingPlanResponse)
+def create_charging_plan(payload: RouteChargingPlanRequest) -> dict[str, Any]:
     try:
+        graph_payload = payload.to_graph_payload()
         station_features = load_station_features()
-        reference_time = reference_time_from_payload(payload, station_features)
+        reference_time = reference_time_from_payload(graph_payload, station_features)
         result = compiled_route_planner_graph().invoke(
             {
-                "request": payload,
+                "request": graph_payload,
                 "station_features": station_features,
                 "reference_time": reference_time,
             }

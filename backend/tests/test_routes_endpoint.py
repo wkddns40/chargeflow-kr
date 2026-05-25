@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.api import routes
 from app.main import create_app
+from app.schemas.route_planner import RouteChargingPlanRequest, RouteChargingPlanResponse
 
 
 def client() -> TestClient:
@@ -82,6 +83,7 @@ def test_charging_plan_endpoint_returns_graph_response(monkeypatch) -> None:
     assert payload["meta"]["source"] == "synthetic-status-file-sample"
     assert payload["meta"]["snapshot_date"] == "2026-05-19"
     assert payload["meta"]["freshness_label"] == "fresh"
+    assert RouteChargingPlanResponse.model_validate(payload).route_id == "fixture-seoul-daejeon"
 
 
 def test_charging_plan_endpoint_derives_reference_time_from_station_status(monkeypatch) -> None:
@@ -108,6 +110,20 @@ def test_charging_plan_endpoint_returns_graph_errors_as_bad_request(monkeypatch)
     assert response.json()["detail"][0]["node"] == "validate_route_request"
 
 
+def test_charging_plan_endpoint_keeps_request_errors_in_graph(monkeypatch) -> None:
+    monkeypatch.setattr(routes, "load_station_features", lambda: [station_feature("CFL-SYN-00001", 0.0, 0.43)])
+
+    response = client().post("/api/routes/charging-plan", json={"vehicle": route_request()["vehicle"]})
+
+    assert response.status_code == 400
+    assert response.json()["detail"][0] == {
+        "node": "validate_route_request",
+        "message": "request.route is required",
+        "code": "missing_route",
+    }
+    assert RouteChargingPlanRequest.model_validate({"route": "not-a-route"}).route == "not-a-route"
+
+
 def test_charging_plan_endpoint_reports_station_fixture_errors(monkeypatch) -> None:
     def raise_missing_fixture() -> list[dict]:
         raise FileNotFoundError("Synthetic station fixture not found: missing.geojson")
@@ -118,3 +134,21 @@ def test_charging_plan_endpoint_reports_station_fixture_errors(monkeypatch) -> N
 
     assert response.status_code == 500
     assert "Synthetic station fixture not found" in response.json()["detail"]
+
+
+def test_charging_plan_endpoint_openapi_uses_response_schema() -> None:
+    response = client().get("/openapi.json")
+
+    assert response.status_code == 200
+    payload = response.json()
+    operation = payload["paths"]["/api/routes/charging-plan"]["post"]
+
+    assert operation["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/RouteChargingPlanRequest"
+    }
+    assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/RouteChargingPlanResponse"
+    }
+    assert "RouteChargingPlanRequest" in payload["components"]["schemas"]
+    assert "RouteChargingPlanResponse" in payload["components"]["schemas"]
+    assert "RoutePlannerRecommendation" in payload["components"]["schemas"]
