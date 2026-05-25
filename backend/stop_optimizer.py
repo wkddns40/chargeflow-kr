@@ -597,7 +597,7 @@ def build_stop_optimizer_response(
     reference_time: datetime,
 ) -> StopOptimizerResponse:
     limit = _validate_positive_integer(optimizer_input.max_results, "max_results")
-    summary = _build_optimizer_summary(optimizer_input.route_distance_km, optimizer_input.vehicle)
+    summary = estimate_route_soc_summary(optimizer_input.route_distance_km, optimizer_input.vehicle)
     reference = _require_aware_datetime(reference_time, "reference_time")
     evaluations = tuple(
         _score_candidate(candidate, optimizer_input.vehicle, reference)
@@ -635,7 +635,7 @@ def build_stop_optimizer_response(
     )
 
 
-def _build_optimizer_summary(route_distance_km: float, vehicle: VehicleProfile) -> StopOptimizerSummary:
+def estimate_route_soc_summary(route_distance_km: float, vehicle: VehicleProfile) -> StopOptimizerSummary:
     _validate_positive_number(route_distance_km, "route_distance_km")
     estimated_energy_kwh = route_distance_km * vehicle.consumption_kwh_per_km
     soc_delta = estimated_energy_kwh / vehicle.battery_kwh

@@ -616,7 +616,9 @@ State keys:
 - `request`: original route planner request payload.
 - `route_id`, `route_distance_km`, `route_polyline`: validated route fields.
 - `vehicle`: validated vehicle profile payload.
+- `route_summary`: deterministic route energy and SoC summary.
 - `constraints`: normalized planner constraints.
+- `reference_time`: ISO 8601 datetime string with timezone, used for deterministic availability freshness scoring.
 - `station_features`: local station data available to the graph.
 - `candidate_features`: route-corridor-filtered station features.
 - `stop_candidates`: optimizer candidate dictionaries.
@@ -698,6 +700,49 @@ Failure behavior:
 - Missing or non-list `station_features` returns `invalid_station_candidates`.
 - Invalid GeoJSON station geometry or coordinates from the corridor helper returns `invalid_station_candidates`.
 - Errors are appended as `{node: "find_station_candidates", message, code}` and no candidate feature payload is written.
+
+### `estimate_soc` node
+
+`estimate_soc(state)` reads `route_distance_km` and normalized `vehicle`, then delegates route-level energy and SoC math to `estimate_route_soc_summary` in `stop_optimizer.py`. The graph node does not duplicate numeric formulas.
+
+Successful update keys:
+
+- `route_summary`: `StopOptimizerSummary.to_dict()` output with `distance_km`, `estimated_energy_kwh`, `start_soc`, `target_arrival_soc`, `minimum_required_soc`, and `reachable_without_stop`.
+- `errors`: existing errors, unchanged.
+
+Failure behavior:
+
+- Missing or invalid `route_distance_km` returns `invalid_soc_estimate`.
+- Missing or invalid normalized `vehicle` returns `invalid_soc_estimate`.
+- Errors are appended as `{node: "estimate_soc", message, code}` and no route summary payload is written.
+
+### `rank_charging_stops` node
+
+`rank_charging_stops(state)` reads normalized route fields, `vehicle`, `candidate_features`, and `reference_time`. It converts route-corridor-filtered station Features into `StopCandidate` rows, builds `StopOptimizerInput`, and delegates ranking to `build_stop_optimizer_response` in `stop_optimizer.py`.
+
+The graph node does not duplicate scoring, availability freshness, stale penalty, fallback, or recommendation ordering logic.
+
+Successful update keys:
+
+- `stop_candidates`: normalized `StopCandidate.to_dict()` rows built from candidate Feature properties.
+- `optimizer_input`: serialized `StopOptimizerInput.to_dict()` payload.
+- `optimizer_response`: serialized `StopOptimizerResponse.to_dict()` payload, including `summary` and sorted `recommendations`.
+- `errors`: existing errors, unchanged.
+
+Candidate Feature mapping:
+
+- `properties.station_id` is preferred; `properties.charger_id` is accepted for current local station fixtures.
+- `properties.name` is preferred; `properties.charger_name` is accepted for current local station fixtures.
+- `properties.connector_type`, `max_kw`, `distance_from_route_km`, and `route_distance_km` are required before optimizer ranking.
+- `properties.status` defaults to `unknown` when omitted.
+- `properties.status_updated_at` is optional; missing values flow to optimizer freshness `unknown`.
+
+Failure behavior:
+
+- Missing or invalid `route_id`, `route_distance_km`, `vehicle`, `candidate_features`, `reference_time`, or `constraints.max_results` returns `invalid_stop_ranking`.
+- Empty candidate lists return `invalid_stop_ranking`; empty local data should not silently produce an authoritative-looking route plan.
+- Candidate Feature rows missing required optimizer fields return `invalid_stop_ranking`.
+- Errors are appended as `{node: "rank_charging_stops", message, code}` and no optimizer payload is written.
 
 ## External Route API Dependency Review
 
@@ -796,6 +841,8 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_vehicle_profile|VehicleProfile.to_dict|missing_vehicle|invalid_vehicle|connector preferences"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "build_route_corridor|DEFAULT_CORRIDOR_WIDTH_KM|route_corridor|corridor_width_km|invalid_corridor"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "find_station_candidates|filter_candidates_by_route_corridor|station_features|candidate_features|invalid_station_candidates"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "estimate_soc|estimate_route_soc_summary|route_summary|minimum_required_soc|invalid_soc_estimate"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "rank_charging_stops|StopOptimizerInput|build_stop_optimizer_response|reference_time|invalid_stop_ranking"
 rg -n "route API|external route|Directions|directions|OSRM|OpenRouteService|GraphHopper|Google Maps|Mapbox Directions|Naver|Kakao|Tmap|Valhalla|routing provider|route provider" D:\fleet\chargeflow-kr --glob "!frontend/node_modules/**" --glob "!backend/.venv/**" --glob "!backend/.pytest_cache/**"
 ```
 
@@ -819,4 +866,6 @@ Pass conditions:
 - `validate_vehicle_profile` documents helper-owned vehicle validation and vehicle validation error codes.
 - `build_route_corridor` documents default corridor width, route corridor payload, and corridor validation error codes.
 - `find_station_candidates` documents corridor-filtered station feature output and station candidate error codes.
+- `estimate_soc` documents helper-owned SoC math, route summary output, and SoC estimate error codes.
+- `rank_charging_stops` documents helper-owned ranking, optimizer payload outputs, deterministic `reference_time`, and stop ranking error codes.
 - Later schema and optimizer work remains explicitly deferred.

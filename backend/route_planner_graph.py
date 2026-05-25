@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from numbers import Real
 from typing import Any, Literal, NotRequired, TypedDict
 
 from route_corridor import DEFAULT_CORRIDOR_WIDTH_KM, RoutePolyline, filter_candidates_by_route_corridor
+from stop_optimizer import (
+    DEFAULT_MAX_RECOMMENDATIONS,
+    StopCandidate,
+    StopOptimizerInput,
+    build_stop_optimizer_response,
+    estimate_route_soc_summary,
+)
 from vehicle_profile import VehicleProfile, VehicleProfileError
 
 
@@ -69,7 +77,9 @@ class RoutePlannerGraphState(TypedDict, total=False):
     route_polyline: list[list[float]]
     route_corridor: RouteCorridorPayload
     vehicle: VehicleProfilePayload
+    route_summary: OptimizerPayload
     constraints: RoutePlannerConstraintsPayload
+    reference_time: str
     station_features: list[FeaturePayload]
     candidate_features: list[FeaturePayload]
     stop_candidates: list[OptimizerPayload]
@@ -86,7 +96,9 @@ ROUTE_PLANNER_STATE_KEYS: tuple[str, ...] = (
     "route_polyline",
     "route_corridor",
     "vehicle",
+    "route_summary",
     "constraints",
+    "reference_time",
     "station_features",
     "candidate_features",
     "stop_candidates",
@@ -187,6 +199,45 @@ def find_station_candidates(state: RoutePlannerGraphState) -> RoutePlannerGraphS
     return {"candidate_features": candidates, "errors": errors}
 
 
+def estimate_soc(state: RoutePlannerGraphState) -> RoutePlannerGraphState:
+    errors = list(state.get("errors", []))
+    try:
+        route_distance_km = _validate_positive_number(state.get("route_distance_km"), "route_distance_km")
+        vehicle = _vehicle_profile_from_state(state)
+        summary = estimate_route_soc_summary(route_distance_km, vehicle)
+    except (KeyError, TypeError, ValueError, VehicleProfileError) as exc:
+        return {"errors": [*errors, _soc_estimate_error(str(exc), "invalid_soc_estimate")]}
+
+    return {"route_summary": summary.to_dict(), "errors": errors}
+
+
+def rank_charging_stops(state: RoutePlannerGraphState) -> RoutePlannerGraphState:
+    errors = list(state.get("errors", []))
+    try:
+        route_id = _route_id_from_state(state)
+        route_distance_km = _validate_positive_number(state.get("route_distance_km"), "route_distance_km")
+        vehicle = _vehicle_profile_from_state(state)
+        candidates = _stop_candidates_from_state(state)
+        reference_time = _reference_time_from_state(state)
+        optimizer_input = StopOptimizerInput(
+            route_id=route_id,
+            route_distance_km=route_distance_km,
+            vehicle=vehicle,
+            candidates=candidates,
+            max_results=_max_results_from_state(state),
+        )
+        optimizer_response = build_stop_optimizer_response(optimizer_input, reference_time)
+    except (KeyError, TypeError, ValueError, VehicleProfileError) as exc:
+        return {"errors": [*errors, _stop_ranking_error(str(exc), "invalid_stop_ranking")]}
+
+    return {
+        "stop_candidates": [candidate.to_dict() for candidate in candidates],
+        "optimizer_input": optimizer_input.to_dict(),
+        "optimizer_response": optimizer_response.to_dict(),
+        "errors": errors,
+    }
+
+
 def _route_request_error(message: str, code: str) -> RoutePlannerErrorPayload:
     return {"node": "validate_route_request", "message": message, "code": code}
 
@@ -201,6 +252,14 @@ def _route_corridor_error(message: str, code: str) -> RoutePlannerErrorPayload:
 
 def _station_candidates_error(message: str, code: str) -> RoutePlannerErrorPayload:
     return {"node": "find_station_candidates", "message": message, "code": code}
+
+
+def _soc_estimate_error(message: str, code: str) -> RoutePlannerErrorPayload:
+    return {"node": "estimate_soc", "message": message, "code": code}
+
+
+def _stop_ranking_error(message: str, code: str) -> RoutePlannerErrorPayload:
+    return {"node": "rank_charging_stops", "message": message, "code": code}
 
 
 def _normalize_route_id(value: object) -> str:
@@ -221,6 +280,14 @@ def _validate_positive_number(value: object, field: str) -> float:
     return number
 
 
+def _validate_positive_integer(value: object, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field} must be a positive integer")
+    if value <= 0:
+        raise ValueError(f"{field} must be a positive integer")
+    return value
+
+
 def _validate_non_negative_number(value: object, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{field} must be a number")
@@ -228,6 +295,13 @@ def _validate_non_negative_number(value: object, field: str) -> float:
     if not math.isfinite(number) or number < 0:
         raise ValueError(f"{field} must be non-negative")
     return number
+
+
+def _route_id_from_state(state: RoutePlannerGraphState) -> str:
+    route_id = state.get("route_id")
+    if not isinstance(route_id, str) or not route_id.strip():
+        raise ValueError("route_id is required")
+    return route_id.strip()
 
 
 def _route_corridor_width_from_state(state: RoutePlannerGraphState) -> float:
@@ -272,6 +346,137 @@ def _station_features_from_state(state: RoutePlannerGraphState) -> list[FeatureP
             raise ValueError(f"station_features[{index}] must be an object")
         normalized.append(dict(feature))
     return normalized
+
+
+def _vehicle_profile_from_state(state: RoutePlannerGraphState) -> VehicleProfile:
+    vehicle_payload = state.get("vehicle")
+    if not isinstance(vehicle_payload, Mapping):
+        raise ValueError("vehicle is required")
+
+    return VehicleProfile(
+        battery_kwh=vehicle_payload["battery_kwh"],
+        current_soc=vehicle_payload["current_soc"],
+        target_arrival_soc=vehicle_payload["target_arrival_soc"],
+        consumption_kwh_per_km=vehicle_payload["consumption_kwh_per_km"],
+        preferred_connector_types=vehicle_payload["preferred_connector_types"],
+        max_charging_kw=vehicle_payload["max_charging_kw"],
+    )
+
+
+def _stop_candidates_from_state(state: RoutePlannerGraphState) -> tuple[StopCandidate, ...]:
+    candidate_features = state.get("candidate_features")
+    if isinstance(candidate_features, (str, bytes)) or not isinstance(candidate_features, Sequence):
+        raise ValueError("candidate_features is required")
+    if len(candidate_features) == 0:
+        raise ValueError("candidate_features must include at least one candidate")
+
+    return tuple(_stop_candidate_from_feature(feature, index) for index, feature in enumerate(candidate_features))
+
+
+def _stop_candidate_from_feature(feature: object, index: int) -> StopCandidate:
+    if not isinstance(feature, Mapping):
+        raise ValueError(f"candidate_features[{index}] must be an object")
+
+    properties = feature.get("properties")
+    if not isinstance(properties, Mapping):
+        raise ValueError(f"candidate_features[{index}].properties is required")
+
+    return StopCandidate(
+        station_id=_required_text_property(
+            properties,
+            f"candidate_features[{index}].properties.station_id",
+            "station_id",
+            "charger_id",
+        ),
+        name=_required_text_property(
+            properties,
+            f"candidate_features[{index}].properties.name",
+            "name",
+            "charger_name",
+        ),
+        connector_type=_required_text_property(
+            properties,
+            f"candidate_features[{index}].properties.connector_type",
+            "connector_type",
+        ),
+        max_kw=_validate_positive_number(
+            properties.get("max_kw"),
+            f"candidate_features[{index}].properties.max_kw",
+        ),
+        distance_from_route_km=_validate_non_negative_number(
+            properties.get("distance_from_route_km"),
+            f"candidate_features[{index}].properties.distance_from_route_km",
+        ),
+        route_distance_km=_validate_non_negative_number(
+            properties.get("route_distance_km"),
+            f"candidate_features[{index}].properties.route_distance_km",
+        ),
+        status=_availability_status_from_properties(properties, index),
+        status_updated_at=_optional_text_property(
+            properties.get("status_updated_at"),
+            f"candidate_features[{index}].properties.status_updated_at",
+        ),
+    )
+
+
+def _required_text_property(properties: Mapping[str, Any], field: str, *keys: str) -> str:
+    for key in keys:
+        value = properties.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    raise ValueError(f"{field} is required")
+
+
+def _optional_text_property(value: object, field: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    normalized = value.strip()
+    return normalized or None
+
+
+def _availability_status_from_properties(properties: Mapping[str, Any], index: int) -> str:
+    value = properties.get("status", "unknown")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"candidate_features[{index}].properties.status must be a string")
+    return value.strip()
+
+
+def _reference_time_from_state(state: RoutePlannerGraphState) -> datetime:
+    value = state.get("reference_time")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("reference_time is required")
+
+    try:
+        reference_time = datetime.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise ValueError("reference_time must be an ISO 8601 datetime") from exc
+
+    if reference_time.tzinfo is None or reference_time.utcoffset() is None:
+        raise ValueError("reference_time must include timezone")
+    return reference_time
+
+
+def _max_results_from_state(state: RoutePlannerGraphState) -> int:
+    constraints = state.get("constraints")
+    if constraints is not None and not isinstance(constraints, Mapping):
+        raise ValueError("constraints must be an object")
+    if isinstance(constraints, Mapping) and "max_results" in constraints:
+        return _validate_positive_integer(constraints.get("max_results"), "constraints.max_results")
+
+    request = state.get("request")
+    if isinstance(request, Mapping):
+        request_constraints = request.get("constraints")
+        if request_constraints is not None and not isinstance(request_constraints, Mapping):
+            raise ValueError("request.constraints must be an object")
+        if isinstance(request_constraints, Mapping) and "max_results" in request_constraints:
+            return _validate_positive_integer(
+                request_constraints.get("max_results"),
+                "constraints.max_results",
+            )
+
+    return DEFAULT_MAX_RECOMMENDATIONS
 
 
 def _route_polyline_from_payload(polyline: list[list[float]]) -> RoutePolyline:
