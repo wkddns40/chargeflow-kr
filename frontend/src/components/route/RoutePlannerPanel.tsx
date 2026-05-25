@@ -17,7 +17,7 @@ import {
 } from '../../lib/routePlannerDisplay';
 
 type RoutePlannerPanelProps = {
-  onApplyRecommendations?: (result: RouteChargingPlanResponse) => void;
+  onApplyPlan?: (result: RouteChargingPlanResponse, route: RoutePlannerRoute) => void;
   onClearRecommendations?: () => void;
 };
 
@@ -36,7 +36,7 @@ const ROUTE_OPTIONS: Array<RoutePlannerRoute & { label: string }> = [
 
 const CONNECTOR_OPTIONS = ['DC Combo', 'DC', 'CHAdeMO', 'AC Type 2'] as const;
 
-export function RoutePlannerPanel({ onApplyRecommendations, onClearRecommendations }: RoutePlannerPanelProps = {}) {
+export function RoutePlannerPanel({ onApplyPlan, onClearRecommendations }: RoutePlannerPanelProps = {}) {
   const [routeId, setRouteId] = useState(ROUTE_OPTIONS[0].id ?? '');
   const [batteryKwh, setBatteryKwh] = useState(77.4);
   const [currentSocPercent, setCurrentSocPercent] = useState(64);
@@ -54,7 +54,7 @@ export function RoutePlannerPanel({ onApplyRecommendations, onClearRecommendatio
 
   const mutation = useMutation({
     mutationFn: (request: RouteChargingPlanRequest) => fetchChargingPlan(request),
-    onSuccess: (data) => onApplyRecommendations?.(data),
+    onSuccess: (data, request) => onApplyPlan?.(data, request.route),
   });
 
   function buildRequest(): RouteChargingPlanRequest {

@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DeckGL from '@deck.gl/react';
 import { Map } from 'react-map-gl/maplibre';
-import { ScatterplotLayer } from '@deck.gl/layers';
+import { PathLayer, ScatterplotLayer } from '@deck.gl/layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { ChargerFeature, ViewState } from '../../types/charger';
 import { INITIAL_VIEW_STATE, MAP_STYLE_URL } from '../../constants/viewport';
 import { getValidData, type ViewportSize } from '../../lib/geo';
-import type { RouteChargingPlanResponse } from '../../lib/routePlanner';
-import { getRouteRecommendationStationIds, matchRouteRecommendationStations } from '../../lib/routePlannerMap';
+import type { RouteChargingPlanResponse, RoutePlannerRoute } from '../../lib/routePlanner';
+import {
+  getRouteFitViewState,
+  getRoutePathLayerData,
+  getRouteRecommendationStationIds,
+  matchRouteRecommendationStations,
+  type RoutePathLayerData,
+} from '../../lib/routePlannerMap';
 import { isViewportStationsFlagEnabled, useViewportStations } from '../../hooks/useViewportStations';
 import { SearchAssistantPanel } from '../search/SearchAssistantPanel';
 import { RoutePlannerPanel } from '../route/RoutePlannerPanel';
@@ -32,6 +38,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
   const [selected, setSelected] = useState<ChargerFeature | null>(null);
   const [assistantResults, setAssistantResults] = useState<ChargerFeature[] | null>(null);
   const [routePlanResult, setRoutePlanResult] = useState<RouteChargingPlanResponse | null>(null);
+  const [routePlanRoute, setRoutePlanRoute] = useState<RoutePlannerRoute | null>(null);
   const viewportStationsEnabled = isViewportStationsFlagEnabled(import.meta.env.VITE_ENABLE_VIEWPORT_STATIONS);
   const viewportStations = useViewportStations({
     viewState,
@@ -47,11 +54,12 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
     () => matchRouteRecommendationStations(validBaseStations, routeRecommendationIds),
     [routeRecommendationIds, validBaseStations],
   );
+  const routePathData = useMemo(() => getRoutePathLayerData(routePlanRoute), [routePlanRoute]);
   const dataMode = viewportStations.enabled ? 'Viewport API' : import.meta.env.VITE_DEMO_MODE === 'false' ? 'API' : 'Static demo';
   const rightPanelsEnabled = assistantSearchEnabled || routePlannerEnabled;
 
   useEffect(() => {
-    if (!viewportStationsEnabled || !shellRef.current) return;
+    if ((!viewportStationsEnabled && !routePlannerEnabled) || !shellRef.current) return;
 
     const updateViewportSize = () => {
       const rect = shellRef.current?.getBoundingClientRect();
@@ -64,7 +72,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
     const observer = new ResizeObserver(updateViewportSize);
     observer.observe(shellRef.current);
     return () => observer.disconnect();
-  }, [viewportStationsEnabled]);
+  }, [routePlannerEnabled, viewportStationsEnabled]);
 
   const stationLayer = useMemo(
     () =>
@@ -79,6 +87,21 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
         onClick: ({ object }: { object?: ChargerFeature | null }) => setSelected(object ?? null),
       }),
     [validStations],
+  );
+  const routePathLayer = useMemo(
+    () =>
+      new PathLayer<RoutePathLayerData>({
+        id: 'route-plan-path',
+        data: routePathData,
+        getPath: (route: RoutePathLayerData) => route.path,
+        getColor: () => [14, 165, 233, 230],
+        getWidth: () => 5,
+        widthUnits: 'pixels',
+        rounded: true,
+        jointRounded: true,
+        capRounded: true,
+      }),
+    [routePathData],
   );
   const routeRecommendationLayer = useMemo(
     () =>
@@ -100,8 +123,12 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
     [routeRecommendationStations],
   );
   const layers = useMemo(
-    () => (routeRecommendationStations.length > 0 ? [stationLayer, routeRecommendationLayer] : [stationLayer]),
-    [routeRecommendationLayer, routeRecommendationStations.length, stationLayer],
+    () => [
+      ...(routePathData.length > 0 ? [routePathLayer] : []),
+      stationLayer,
+      ...(routeRecommendationStations.length > 0 ? [routeRecommendationLayer] : []),
+    ],
+    [routePathData.length, routePathLayer, routeRecommendationLayer, routeRecommendationStations.length, stationLayer],
   );
 
   return (
@@ -143,8 +170,15 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
           )}
           {routePlannerEnabled && (
             <RoutePlannerPanel
-              onApplyRecommendations={(result) => setRoutePlanResult(result)}
-              onClearRecommendations={() => setRoutePlanResult(null)}
+              onApplyPlan={(result, route) => {
+                setRoutePlanResult(result);
+                setRoutePlanRoute(route);
+                setViewState((currentViewState) => getRouteFitViewState(route, viewportSize, currentViewState));
+              }}
+              onClearRecommendations={() => {
+                setRoutePlanResult(null);
+                setRoutePlanRoute(null);
+              }}
             />
           )}
         </div>

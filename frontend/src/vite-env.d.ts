@@ -21,4 +21,7 @@ declare module '@deck.gl/layers' {
   export class ScatterplotLayer<T = unknown> {
     constructor(props: Record<string, unknown>);
   }
+  export class PathLayer<T = unknown> {
+    constructor(props: Record<string, unknown>);
+  }
 }
