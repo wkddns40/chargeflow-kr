@@ -6,6 +6,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { ChargerFeature, ViewState } from '../../types/charger';
 import { INITIAL_VIEW_STATE, MAP_STYLE_URL } from '../../constants/viewport';
 import { getValidData, type ViewportSize } from '../../lib/geo';
+import type { RouteChargingPlanResponse } from '../../lib/routePlanner';
+import { getRouteRecommendationStationIds, matchRouteRecommendationStations } from '../../lib/routePlannerMap';
 import { isViewportStationsFlagEnabled, useViewportStations } from '../../hooks/useViewportStations';
 import { SearchAssistantPanel } from '../search/SearchAssistantPanel';
 import { RoutePlannerPanel } from '../route/RoutePlannerPanel';
@@ -29,6 +31,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
   const [viewportSize, setViewportSize] = useState<ViewportSize>({ width: 1024, height: 768 });
   const [selected, setSelected] = useState<ChargerFeature | null>(null);
   const [assistantResults, setAssistantResults] = useState<ChargerFeature[] | null>(null);
+  const [routePlanResult, setRoutePlanResult] = useState<RouteChargingPlanResponse | null>(null);
   const viewportStationsEnabled = isViewportStationsFlagEnabled(import.meta.env.VITE_ENABLE_VIEWPORT_STATIONS);
   const viewportStations = useViewportStations({
     viewState,
@@ -37,7 +40,13 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
   });
   const baseStations = viewportStations.enabled ? viewportStations.stations : stations;
   const layerStations = assistantResults ?? baseStations;
+  const validBaseStations = useMemo(() => getValidData(baseStations), [baseStations]);
   const validStations = useMemo(() => getValidData(layerStations), [layerStations]);
+  const routeRecommendationIds = useMemo(() => getRouteRecommendationStationIds(routePlanResult), [routePlanResult]);
+  const routeRecommendationStations = useMemo(
+    () => matchRouteRecommendationStations(validBaseStations, routeRecommendationIds),
+    [routeRecommendationIds, validBaseStations],
+  );
   const dataMode = viewportStations.enabled ? 'Viewport API' : import.meta.env.VITE_DEMO_MODE === 'false' ? 'API' : 'Static demo';
   const rightPanelsEnabled = assistantSearchEnabled || routePlannerEnabled;
 
@@ -71,11 +80,34 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
       }),
     [validStations],
   );
+  const routeRecommendationLayer = useMemo(
+    () =>
+      new ScatterplotLayer<ChargerFeature>({
+        id: 'route-recommendation-points',
+        data: routeRecommendationStations,
+        pickable: true,
+        radiusUnits: 'pixels',
+        stroked: true,
+        filled: true,
+        lineWidthUnits: 'pixels',
+        getLineWidth: () => 3,
+        getRadius: () => 16,
+        getPosition: (station: ChargerFeature) => station.geometry.coordinates,
+        getFillColor: () => [37, 99, 235, 90],
+        getLineColor: () => [37, 99, 235, 245],
+        onClick: ({ object }: { object?: ChargerFeature | null }) => setSelected(object ?? null),
+      }),
+    [routeRecommendationStations],
+  );
+  const layers = useMemo(
+    () => (routeRecommendationStations.length > 0 ? [stationLayer, routeRecommendationLayer] : [stationLayer]),
+    [routeRecommendationLayer, routeRecommendationStations.length, stationLayer],
+  );
 
   return (
     <div ref={shellRef} className={`map-shell${rightPanelsEnabled ? ' right-panels-enabled' : ''}`}>
       <DeckGL
-        layers={[stationLayer]}
+        layers={layers}
         viewState={viewState}
         onViewStateChange={({ viewState: nextViewState }: { viewState: ViewState }) => setViewState(nextViewState)}
         controller={{ dragPan: true, scrollZoom: true, doubleClickZoom: false, dragRotate: false }}
@@ -109,7 +141,12 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
               onClearResults={() => setAssistantResults(null)}
             />
           )}
-          {routePlannerEnabled && <RoutePlannerPanel />}
+          {routePlannerEnabled && (
+            <RoutePlannerPanel
+              onApplyRecommendations={(result) => setRoutePlanResult(result)}
+              onClearRecommendations={() => setRoutePlanResult(null)}
+            />
+          )}
         </div>
       )}
 

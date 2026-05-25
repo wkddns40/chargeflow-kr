@@ -851,6 +851,12 @@ The panel stays inside MVP boundaries: it does not draw a route on the map, edit
 
 `frontend/src/components/map/MapShell.tsx` stacks the route planner and assistant panels in the same right-side panel area so feature flags do not overlap panels.
 
+### Frontend recommendation map highlight
+
+As of 5.1.3, successful route planner panel responses are applied to the map by matching backend `recommendations[].station_id` values against currently loaded frontend station features by `properties.charger_id`. Matching stations render in a second deck.gl `ScatterplotLayer` above the normal station layer and remain clickable through the existing station detail panel.
+
+This is a smoke hook for route-aware map feedback, not route drawing. If a recommended station is not loaded in the current frontend dataset or viewport response, it is skipped instead of inventing coordinates or fetching external data. Clearing the route planner panel clears the highlighted recommendation layer.
+
 ## External Route API Dependency Review
 
 Last reviewed: 2026-05-22.
@@ -912,6 +918,7 @@ LangGraph dependency decision:
 - As of 4.5.17, the endpoint uses a pass-through request model for OpenAPI discoverability without preempting graph validation.
 - As of 5.1.1, the frontend has a typed route planner client behind `VITE_ENABLE_ROUTE_PLANNER=false`; it only calls the local backend route planner endpoint.
 - As of 5.1.2, the frontend has a feature-flagged route planner panel shell that submits static local route payloads and displays backend response fields.
+- As of 5.1.3, route planner recommendations can highlight matching loaded station features on the map without drawing routes or fetching external coordinates.
 
 Implemented backend pieces:
 
@@ -953,6 +960,7 @@ Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Patte
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Route planner request schema|RouteChargingPlanRequest|pass-through|validate_route_request|validate_vehicle_profile"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route planner client|VITE_ENABLE_ROUTE_PLANNER|fetchChargingPlan|meta.limitations|Route planner failed"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend route planner panel|RoutePlannerPanel|static local route|right-side panel|VITE_ENABLE_ROUTE_PLANNER=true"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Frontend recommendation map highlight|station_id|properties.charger_id|ScatterplotLayer|not route drawing"
 Select-String -Path D:\fleet\chargeflow-kr\backend\requirements.txt -Pattern "langgraph==1.2.1"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "Serializable Route Planner Graph State|JSON-safe payloads|route_polyline|optimizer_response|errors"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6d-route-planner.md -Pattern "validate_route_request|missing_request|missing_route|invalid_route|route-request"
@@ -998,4 +1006,5 @@ Pass conditions:
 - Route planner request schema appears in OpenAPI without taking request validation away from graph nodes.
 - Frontend route planner client builds `/api/routes/charging-plan`, posts the typed request, keeps the feature flag off by default, and preserves backend limitations for later UI display.
 - Frontend route planner panel is feature-flagged, uses static local route payloads, shows backend response fields, and does not add route drawing or external provider behavior.
+- Frontend recommendation map highlight matches backend station IDs to loaded frontend station features and skips missing stations without inventing coordinates.
 - Later strict request schema and optimizer work remains explicitly deferred.
