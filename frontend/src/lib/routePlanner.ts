@@ -65,6 +65,28 @@ export type RouteChargingPlanResponse = {
   meta: RoutePlannerResponseMeta;
 };
 
+export type RoutePlannerGraphError = {
+  node?: string;
+  message?: string;
+  code?: string;
+};
+
+export class RoutePlannerApiError extends Error {
+  readonly detail: unknown;
+  readonly status: number;
+
+  constructor(status: number, detail: unknown) {
+    super(`Route planner failed: ${String(status)}`);
+    this.name = 'RoutePlannerApiError';
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+export function isRoutePlannerApiError(error: unknown): error is RoutePlannerApiError {
+  return error instanceof RoutePlannerApiError;
+}
+
 export function isRoutePlannerFlagEnabled(flagValue: string | undefined): boolean {
   return flagValue === 'true';
 }
@@ -85,10 +107,19 @@ export async function fetchChargingPlan(
   });
 
   if (!response.ok) {
-    throw new Error(`Route planner failed: ${String(response.status)}`);
+    throw new RoutePlannerApiError(response.status, await readErrorDetail(response));
   }
 
   return response.json() as Promise<RouteChargingPlanResponse>;
 }
 
 export const routePlannerEnabled = isRoutePlannerFlagEnabled(ROUTE_PLANNER_FLAG);
+
+async function readErrorDetail(response: Response): Promise<unknown> {
+  try {
+    const payload = (await response.json()) as { detail?: unknown };
+    return Object.prototype.hasOwnProperty.call(payload, 'detail') ? payload.detail : payload;
+  } catch {
+    return undefined;
+  }
+}

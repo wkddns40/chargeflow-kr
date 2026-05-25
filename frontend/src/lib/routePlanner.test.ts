@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildChargingPlanUrl, fetchChargingPlan, isRoutePlannerFlagEnabled } from './routePlanner';
+import {
+  RoutePlannerApiError,
+  buildChargingPlanUrl,
+  fetchChargingPlan,
+  isRoutePlannerApiError,
+  isRoutePlannerFlagEnabled,
+} from './routePlanner';
 import type { RouteChargingPlanRequest } from './routePlanner';
 
 const REQUEST: RouteChargingPlanRequest = {
@@ -84,5 +90,34 @@ describe('fetchChargingPlan', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400 }));
 
     await expect(fetchChargingPlan(REQUEST)).rejects.toThrow('Route planner failed: 400');
+  });
+
+  it('preserves backend graph error details on failed responses', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          detail: [{ node: 'validate_route_request', message: 'request.route is required', code: 'missing_route' }],
+        }),
+      }),
+    );
+
+    let thrown: unknown;
+    try {
+      await fetchChargingPlan(REQUEST);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(RoutePlannerApiError);
+    expect(isRoutePlannerApiError(thrown)).toBe(true);
+    if (isRoutePlannerApiError(thrown)) {
+      expect(thrown.status).toBe(400);
+      expect(thrown.detail).toEqual([
+        { node: 'validate_route_request', message: 'request.route is required', code: 'missing_route' },
+      ]);
+    }
   });
 });

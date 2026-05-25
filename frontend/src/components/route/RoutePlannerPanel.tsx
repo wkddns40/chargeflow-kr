@@ -6,6 +6,15 @@ import {
   type RouteChargingPlanResponse,
   type RoutePlannerRoute,
 } from '../../lib/routePlanner';
+import {
+  formatRoutePlannerReason,
+  formatRoutePlannerScore,
+  formatRoutePlannerSoc,
+  getRoutePlannerErrorMessages,
+  getRoutePlannerLimitations,
+  getRoutePlannerMetaRows,
+  hasFallbackReason,
+} from '../../lib/routePlannerDisplay';
 
 type RoutePlannerPanelProps = {
   onApplyRecommendations?: (result: RouteChargingPlanResponse) => void;
@@ -208,9 +217,22 @@ export function RoutePlannerPanel({ onApplyRecommendations, onClearRecommendatio
         </button>
       </form>
 
-      {mutation.isError && <p className="assistant-message">Route plan failed.</p>}
+      {mutation.isError && <RoutePlanError error={mutation.error} />}
       {mutation.data && <RoutePlanResult result={mutation.data} />}
     </aside>
+  );
+}
+
+function RoutePlanError({ error }: { error: unknown }) {
+  return (
+    <div className="route-plan-error">
+      <p className="assistant-message">Route plan failed.</p>
+      <ul>
+        {getRoutePlannerErrorMessages(error).map((message) => (
+          <li key={message}>{message}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -241,7 +263,10 @@ function RoutePlanResult({ result }: { result: RouteChargingPlanResponse }) {
       ) : (
         <ol>
           {result.recommendations.slice(0, 5).map((recommendation) => (
-            <li key={recommendation.station_id}>
+            <li
+              key={recommendation.station_id}
+              className={hasFallbackReason(recommendation.reasons) ? 'route-plan-fallback' : undefined}
+            >
               <strong>{recommendation.name}</strong>
               <span>
                 {recommendation.max_kw} kW / {recommendation.connector_type}
@@ -250,13 +275,31 @@ function RoutePlanResult({ result }: { result: RouteChargingPlanResponse }) {
                 {recommendation.route_distance_km.toFixed(1)} km route /{' '}
                 {recommendation.distance_from_route_km.toFixed(1)} km detour
               </span>
+              <span>
+                Arrival {formatRoutePlannerSoc(recommendation.estimated_arrival_soc)} / score{' '}
+                {formatRoutePlannerScore(recommendation.score)}
+              </span>
+              <div className="route-plan-reasons">
+                {recommendation.reasons.map((reason) => (
+                  <span key={reason}>{formatRoutePlannerReason(reason)}</span>
+                ))}
+              </div>
             </li>
           ))}
         </ol>
       )}
 
+      <dl className="route-plan-meta">
+        {getRoutePlannerMetaRows(result.meta).map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+
       <ul>
-        {result.meta.limitations.slice(0, 3).map((limitation) => (
+        {getRoutePlannerLimitations(result.meta).map((limitation) => (
           <li key={limitation}>{limitation}</li>
         ))}
       </ul>
@@ -265,7 +308,7 @@ function RoutePlanResult({ result }: { result: RouteChargingPlanResponse }) {
 }
 
 function formatPercent(value: number): string {
-  return `${Math.round(value * 100)}%`;
+  return formatRoutePlannerSoc(value);
 }
 
 function formatEstimatedArrivalSoc(summary: RouteChargingPlanResponse['summary']): string {
