@@ -173,6 +173,73 @@ LLM-owned steps after tool result:
 3. State when no local result exists.
 4. State when data is stale or unavailable.
 
+## LLM Search Cost Protection
+
+As of 5.2.4, the LLM search path has a no-cost baseline: the enabled frontend shell posts a typed search command to the local backend only. It does not send prompts to an external provider, does not hold a provider API key, and does not perform provider-backed summarization.
+
+If a future task adds an LLM provider for natural-language-to-command parsing, cost protection must gate the provider boundary before any paid request is made:
+
+- Keep `VITE_ENABLE_LLM_SEARCH=false` by default in production until backend-side quotas exist.
+- Keep provider credentials server-side only; no provider key or model name belongs in frontend code.
+- Allow at most one provider call per explicit user submit. No keystroke, autocomplete, map pan, retry loop, or background refresh may call the provider.
+- Enforce prompt length and request body size limits before provider dispatch.
+- Reject unsupported intents such as `plan_route`, `compare_prices`, `reserve_charger`, and `predict_wait_time` locally without provider retries.
+- Apply unauthenticated IP quotas first, and later authenticated user quotas when user identity exists.
+- Add a daily spend cap and circuit breaker that can disable provider calls without disabling local typed search.
+- Use a short timeout and no automatic provider retry unless a later task assigns a retry budget.
+- Cache only normalized typed commands or privacy-safe hashes unless raw prompt retention is explicitly approved.
+- Log metering fields such as endpoint, model, token estimate, cost estimate, outcome, and rate-limit bucket; do not log raw prompt text by default.
+
+The local `/api/search/chargers` endpoint remains the authoritative charger-data path. Rate limiting may protect it for availability, but provider cost controls must focus on the future prompt parsing boundary, not on local station filtering.
+
+## Throttled Request Response
+
+As of 5.2.5, throttled LLM search requests must return a stable HTTP 429 contract. The contract applies to future local endpoint rate limits and future provider cost-protection limits.
+
+Required response:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+Content-Type: application/json
+```
+
+```json
+{
+  "detail": {
+    "code": "rate_limited",
+    "message": "Search is temporarily rate limited. Try again later.",
+    "retry_after_seconds": 60,
+    "scope": "ip"
+  }
+}
+```
+
+Rules:
+
+- Use HTTP 429 for throttled requests, not 400 or 500.
+- Include `Retry-After` when a retry time is known.
+- Keep `detail.code` stable as `rate_limited` so frontend code can branch without parsing English text.
+- Set `detail.scope` to `ip`, `user`, `provider_cost`, or `global_circuit_breaker`.
+- Do not include raw prompt text, provider error payloads, API keys, token details, or internal bucket identifiers in the response.
+- If a daily spend cap or circuit breaker is active, use `scope="provider_cost"` or `scope="global_circuit_breaker"` and keep the message generic.
+- Frontend surfaces the message as a temporary throttle state and must not retry automatically unless a later task defines an explicit retry budget.
+
+## Rate Limit Scope Audit
+
+As of 5.2.6, rate limit work remains design-only. This document defines protected LLM search boundaries, future cost controls, and throttled response shape, but it does not implement runtime throttling.
+
+Implementation intentionally not added in 5.2:
+
+- No FastAPI middleware or dependency for rate limiting.
+- No in-memory, Redis, database, or file-backed token bucket.
+- No auth session, user identity model, API key model, or account quota table.
+- No external LLM provider client, provider API key, model selection, or prompt dispatch.
+- No frontend retry loop, polling loop, debounce-triggered provider call, or provider-cost UI.
+- No changes to the local `/api/search/chargers` command schema or station filtering behavior.
+
+The next implementation task must choose storage, deployment topology, reset windows, clock source, bypass policy for local development, and test strategy before adding runtime throttling.
+
 ## SQL Safety
 
 - LLM output must never be interpolated into SQL.
@@ -339,6 +406,9 @@ Commands:
 ```powershell
 Test-Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "intent|tool boundary|validation|SQL|hallucination|local dataset"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "LLM Search Cost Protection|no-cost baseline|provider call|VITE_ENABLE_LLM_SEARCH=false|daily spend cap|server-side"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "Throttled Request Response|429 Too Many Requests|Retry-After|rate_limited|provider_cost|global_circuit_breaker"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "Rate Limit Scope Audit|design-only|No FastAPI middleware|No external LLM provider client|No changes to the local"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "강남역|제주공항|부산역"
 ```
 
@@ -351,3 +421,6 @@ Pass conditions:
 - Document includes Korean query examples.
 - Document includes hallucination prevention rules.
 - Document notes local dataset limitations and keeps external APIs deferred.
+- Document defines LLM search cost protection before any future paid provider call.
+- Document defines the throttled request response contract for HTTP 429 responses.
+- Document confirms 5.2 remains design-only and does not add runtime throttling or provider calls.
