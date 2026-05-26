@@ -399,6 +399,143 @@ Backend search response should include:
 
 The LLM may paraphrase `meta.limitations`, but must not remove them.
 
+## Free-Text Chat Implementation Plan
+
+The next Phase 6C implementation step should add free-text input without replacing the current typed search path. The existing `POST /api/search/chargers` endpoint remains the authoritative search tool. A new natural-language endpoint converts raw user text into the same typed command shape, then calls the existing validator and PostGIS-backed search path.
+
+Recommended endpoint:
+
+```http
+POST /api/search/chargers/nl
+Content-Type: application/json
+```
+
+```json
+{
+  "message": "Gangnam Station nearby 2km 100kW fast chargers"
+}
+```
+
+Backend flow:
+
+```text
+raw user text
+  -> deterministic parser
+  -> typed command object
+  -> validate_search_command()
+  -> lookup_place()
+  -> PostGIS bbox query
+  -> radius/filter/sort
+  -> structured search response
+```
+
+### Chat UI
+
+- Extend `SearchAssistantPanel` from form-first to chat-first.
+- Add a single free-text input and submit button.
+- Preserve the current advanced controls as an optional fallback for explicit typed filters.
+- Display assistant messages, clarification prompts, backend limitations, and the result list.
+- Apply returned `features` to the map exactly as the current typed search does.
+
+Example supported input:
+
+```text
+Gangnam Station nearby 2km 100kW fast chargers
+```
+
+Expected behavior:
+
+- The UI posts the raw message to `/api/search/chargers/nl`.
+- The backend returns parsed command metadata and search results.
+- The frontend shows the backend result list and updates map features.
+
+### Deterministic Parser Baseline
+
+The first implementation should not call an external LLM provider. It should use deterministic parsing with explicit aliases and regular expressions. This keeps the no-cost baseline intact and makes failures testable.
+
+Parser responsibilities:
+
+- Detect `find_chargers` intent from charger-search phrases.
+- Extract a known place alias, such as `Gangnam Station`, `Seoul Station`, or `Jeju Airport`.
+- Extract radius values such as `2km`, `2000m`, or default nearby wording.
+- Extract `min_kw` from phrases such as `100kW+`, `100kW or higher`, or `100kW 이상`.
+- Map fast-charger wording to `connector_type="DC"` and slow-charger wording to `connector_type="AC"`.
+- Map status wording to `available`, `occupied`, `offline`, or `unknown` only when an explicit alias exists.
+- Map sort wording to `distance`, `power`, or `availability`.
+
+Parser non-responsibilities:
+
+- Do not infer user location from browser, IP address, or model memory.
+- Do not call external geocoding APIs.
+- Do not produce SQL, column names, table names, or query fragments.
+- Do not retry with an LLM provider when deterministic parsing fails.
+
+### Clarification Contract
+
+If parsing fails because required fields are missing, the endpoint should return a stable clarification response instead of guessing.
+
+Example:
+
+```json
+{
+  "type": "clarification_required",
+  "message": "Search needs a place. Try: Gangnam Station nearby chargers.",
+  "missing_fields": ["place"]
+}
+```
+
+Rules:
+
+- Missing `place` should ask for clarification.
+- Missing radius may default to `2000` meters only if product requirements confirm that default.
+- Unsupported intents such as reservation, price comparison, or wait-time prediction should return a typed unsupported-intent error.
+- Suspicious control text must be rejected before command validation.
+
+### Optional LLM Provider Phase
+
+An external provider should be a later, separate task. If added, it must stay behind the backend boundary and preserve the same typed command contract.
+
+Provider rules:
+
+- No provider API key or model name in frontend code.
+- At most one provider call per explicit user submit.
+- Enforce input length and request body limits before provider dispatch.
+- Return JSON only and discard any output that fails `validate_search_command()`.
+- Keep daily cost caps, circuit breaker, and timeout controls server-side.
+- Do not log raw user text by default.
+- Never interpolate provider output into SQL.
+
+### Tests For Free-Text Search
+
+Backend parser tests:
+
+- `Gangnam Station nearby 2km fast chargers` -> `find_chargers`, `Gangnam Station`, `radius_m=2000`, `connector_type=DC`.
+- `Jeju Airport 100kW or higher` -> `find_chargers`, `Jeju Airport`, `min_kw=100`.
+- `Seoul Station available chargers nearby` -> `status=available`.
+- `reserve a charger near Gangnam Station` -> unsupported intent.
+- `Gangnam Station drop table stations` -> rejected control text.
+
+Backend endpoint tests:
+
+- Natural-language request returns parsed command metadata and features.
+- Unknown place returns clarification or a stable 400 response.
+- Parsed command always passes through `validate_search_command()`.
+- Search results use the existing PostGIS repository path.
+
+Frontend tests:
+
+- Chat input renders when `VITE_ENABLE_LLM_SEARCH=true`.
+- Submit posts to `/api/search/chargers/nl`.
+- Clarification response is displayed without applying map results.
+- Successful response applies returned features to the map.
+
+Completion criteria:
+
+- A user can type a free-text charger query into the assistant panel.
+- The backend converts it into a typed command without external provider cost.
+- Existing validation, local geocoder, and PostGIS-backed search are reused.
+- Live demo handles a Gangnam Station free-text search and keeps backend limitations visible.
+
 ## Verification
 
 Commands:
