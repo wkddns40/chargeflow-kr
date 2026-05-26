@@ -4,9 +4,10 @@ import math
 from copy import deepcopy
 from typing import Any
 
+import psycopg
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.stations import STATION_SOURCE, load_station_features
+from app.api.stations import MAX_LIMIT, STATION_SOURCE, load_db_station_features
 from geocoding import UnknownPlaceError, lookup_place
 from search_schema import SearchCommand, SearchCommandError, validate_search_command
 from station_query import BBox, Feature, contains_coordinate, extract_coordinates
@@ -16,6 +17,7 @@ router = APIRouter(tags=["search"])
 EARTH_RADIUS_M = 6_371_000
 METERS_PER_DEGREE_LAT = 111_320
 MAX_SEARCH_RESULTS = 50
+SEARCH_PREFILTER_LIMIT = MAX_LIMIT
 
 
 @router.post("/search/chargers")
@@ -28,10 +30,13 @@ def search_chargers(payload: dict[str, Any]) -> dict:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     try:
-        features = load_station_features()
+        features = load_db_station_features(bbox, SEARCH_PREFILTER_LIMIT)
         matched = search_station_features(features, place.lon, place.lat, command, bbox)
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+    except (psycopg.Error, ValueError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="station database query failed",
+        ) from exc
 
     return {
         "query": {
@@ -47,7 +52,7 @@ def search_chargers(payload: dict[str, Any]) -> dict:
         "features": matched[:MAX_SEARCH_RESULTS],
         "explanation": {
             "applied_filters": applied_filters(command),
-            "data_freshness": "file-snapshot",
+            "data_freshness": "synthetic-snapshot",
             "source": STATION_SOURCE,
             "result_limit": MAX_SEARCH_RESULTS,
         },

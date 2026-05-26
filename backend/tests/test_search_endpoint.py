@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.api import search
 from app.main import create_app
+from station_query import contains_coordinate
 
 
 def client() -> TestClient:
@@ -52,17 +53,18 @@ def command(**overrides) -> dict:
 
 
 def test_search_chargers_returns_filtered_results(monkeypatch) -> None:
-    monkeypatch.setattr(
-        search,
-        "load_station_features",
-        lambda: [
+    def fake_loader(bbox: tuple[float, float, float, float], limit: int) -> list[dict]:
+        assert contains_coordinate(bbox, 127.0276, 37.4979)
+        assert limit == search.SEARCH_PREFILTER_LIMIT
+        return [
             feature("near-match", 127.0277, 37.4980),
             feature("wrong-status", 127.0278, 37.4981, status="occupied"),
             feature("wrong-power", 127.0279, 37.4982, max_kw=50),
             feature("wrong-connector", 127.0280, 37.4983, connector_type="AC Type 2"),
             feature("far-away", 127.0900, 37.5600),
-        ],
-    )
+        ]
+
+    monkeypatch.setattr(search, "load_db_station_features", fake_loader)
 
     response = client().post("/api/search/chargers", json=command())
 
@@ -71,7 +73,7 @@ def test_search_chargers_returns_filtered_results(monkeypatch) -> None:
     assert [item["properties"]["charger_id"] for item in payload["features"]] == ["near-match"]
     assert payload["query"]["place"] == "Gangnam Station"
     assert payload["query"]["place_location"]["place_id"] == "gangnam-station"
-    assert payload["explanation"]["data_freshness"] == "file-snapshot"
+    assert payload["explanation"]["data_freshness"] == "synthetic-snapshot"
     assert payload["explanation"]["applied_filters"] == [
         "radius_m=1000",
         "sort=distance",
@@ -97,15 +99,16 @@ def test_search_chargers_rejects_unknown_place() -> None:
 
 
 def test_search_chargers_applies_radius_after_bbox_prefilter(monkeypatch) -> None:
-    monkeypatch.setattr(
-        search,
-        "load_station_features",
-        lambda: [
+    def fake_loader(bbox: tuple[float, float, float, float], limit: int) -> list[dict]:
+        assert contains_coordinate(bbox, 127.0276, 37.4979)
+        assert limit == search.SEARCH_PREFILTER_LIMIT
+        return [
             feature("near", 127.0277, 37.4980),
             feature("inside-bbox-outside-radius", 127.0356, 37.5059),
             feature("outside-bbox", 127.0900, 37.5600),
-        ],
-    )
+        ]
+
+    monkeypatch.setattr(search, "load_db_station_features", fake_loader)
 
     response = client().post(
         "/api/search/chargers",
@@ -117,3 +120,15 @@ def test_search_chargers_applies_radius_after_bbox_prefilter(monkeypatch) -> Non
     assert [item["properties"]["charger_id"] for item in payload["features"]] == ["near"]
     assert payload["query"]["bbox"]["west"] < 127.0276 < payload["query"]["bbox"]["east"]
     assert payload["query"]["bbox"]["south"] < 37.4979 < payload["query"]["bbox"]["north"]
+
+
+def test_search_chargers_reports_database_errors_without_secrets(monkeypatch) -> None:
+    def broken_loader(*args: object) -> list[dict]:
+        raise RuntimeError("could not connect with password=secret")
+
+    monkeypatch.setattr(search, "load_db_station_features", broken_loader)
+
+    response = client().post("/api/search/chargers", json=command())
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "station database query failed"
