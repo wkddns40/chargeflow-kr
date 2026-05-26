@@ -2,13 +2,16 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
+import psycopg
 from fastapi import APIRouter, HTTPException, Query, status
 
+from app.db.connection import open_connection
+from app.db.station_repository import query_station_features
 from app.schemas.station import StationFeatureCollection
 from station_query import (
+    BBox,
     DEFAULT_LIMIT,
     Feature,
-    filter_by_bbox,
     load_feature_collection,
     normalize_limit,
     parse_bbox,
@@ -29,6 +32,11 @@ def load_station_features(path: str = str(STATION_FIXTURE_PATH)) -> list[Feature
     return load_feature_collection(fixture_path)
 
 
+def load_db_station_features(bbox: BBox, limit: int) -> list[Feature]:
+    with open_connection() as connection:
+        return query_station_features(connection, bbox, limit)
+
+
 @router.get("/stations", response_model=StationFeatureCollection)
 def list_stations(
     bbox: Annotated[str | None, Query(description="west,south,east,north in EPSG:4326")] = None,
@@ -47,11 +55,13 @@ def list_stations(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     try:
-        features = load_station_features()
-    except (FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+        filtered = load_db_station_features(parsed_bbox, normalized_limit)
+    except (psycopg.Error, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="station database query failed",
+        ) from exc
 
-    filtered = filter_by_bbox(features, parsed_bbox, normalized_limit)
     return {
         "type": "FeatureCollection",
         "features": filtered,
