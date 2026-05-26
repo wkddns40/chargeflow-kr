@@ -91,14 +91,11 @@ REGIONS = (
     ),
 )
 
-OPERATORS = (
-    "Korea Electric Power",
-    "Seoul Energy",
-    "ChargeFlow Partner",
-    "Jeju EV Service",
-    "Korea Expressway",
-    "Green Charge Korea",
-)
+SEOUL_OPERATORS = ("Seoul Energy", "Korea Electric Power", "ChargeFlow Partner", "Green Charge Korea")
+GYEONGGI_OPERATORS = ("Korea Electric Power", "ChargeFlow Partner", "Green Charge Korea")
+JEJU_OPERATORS = ("Jeju EV Service", "Korea Electric Power", "Green Charge Korea")
+METRO_OPERATORS = ("Korea Electric Power", "ChargeFlow Partner", "Green Charge Korea")
+EXPRESSWAY_OPERATORS = ("Korea Electric Power", "Korea Expressway", "Green Charge Korea")
 CONNECTOR_TYPES = ("DC Combo", "AC Type 2", "CHAdeMO")
 STATUS_VALUES = ("available", "occupied", "offline", "unknown")
 MAX_KW_BY_CONNECTOR = {
@@ -139,6 +136,18 @@ def point_in_area(area: Area, rng: random.Random) -> tuple[float, float]:
     return lon, lat
 
 
+def operators_for_area(area: Area) -> tuple[str, ...]:
+    if area.address_prefix.startswith("Seoul "):
+        return SEOUL_OPERATORS
+    if area.address_prefix.startswith("Gyeonggi-do "):
+        return GYEONGGI_OPERATORS
+    if area.address_prefix.startswith(("Jeju", "Seogwipo")):
+        return JEJU_OPERATORS
+    if area.name in {"Sejong", "Daejeon Central", "Daejeon Yuseong"}:
+        return EXPRESSWAY_OPERATORS
+    return METRO_OPERATORS
+
+
 def generate_feature(index: int, region: Region, rng: random.Random, base_time: datetime) -> dict[str, object]:
     area = rng.choice(region.areas)
     lon, lat = point_in_area(area, rng)
@@ -154,7 +163,7 @@ def generate_feature(index: int, region: Region, rng: random.Random, base_time: 
         "properties": {
             "charger_id": f"CFL-SYN-{index:05d}",
             "charger_name": f"{area.name} Synthetic Charger {index:05d}",
-            "operator": rng.choice(OPERATORS),
+            "operator": rng.choice(operators_for_area(area)),
             "connector_type": connector_type,
             "max_kw": rng.choice(MAX_KW_BY_CONNECTOR[connector_type]),
             "address": f"{area.address_prefix} {rng.randint(1, 999)}",
