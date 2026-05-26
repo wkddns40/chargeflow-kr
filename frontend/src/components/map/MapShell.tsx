@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import DeckGL from '@deck.gl/react';
 import { Map } from 'react-map-gl/maplibre';
 import { PathLayer, ScatterplotLayer } from '@deck.gl/layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { ChargerFeature, ViewState } from '../../types/charger';
-import { INITIAL_VIEW_STATE, MAP_STYLE_URL } from '../../constants/viewport';
-import { getValidData, type ViewportSize } from '../../lib/geo';
+import { INITIAL_VIEW_STATE, MAP_STYLE_URL, REFERENCE_VIEWPORT_SIZE } from '../../constants/viewport';
+import { getValidData } from '../../lib/geo';
 import type { RouteChargingPlanResponse, RoutePlannerRoute } from '../../lib/routePlanner';
 import {
   findRouteRecommendationStation,
@@ -25,6 +25,12 @@ type MapShellProps = {
   routePlannerEnabled?: boolean;
 };
 
+type StageTransform = {
+  scale: number;
+  x: number;
+  y: number;
+};
+
 const STATUS_COLORS: Record<ChargerFeature['properties']['status'], [number, number, number, number]> = {
   available: [36, 160, 95, 220],
   occupied: [241, 170, 59, 220],
@@ -32,10 +38,25 @@ const STATUS_COLORS: Record<ChargerFeature['properties']['status'], [number, num
   unknown: [112, 122, 138, 200],
 };
 
+function getStageTransform(): StageTransform {
+  if (typeof window === 'undefined') {
+    return { scale: 1, x: 0, y: 0 };
+  }
+
+  const scale = Math.min(
+    window.innerWidth / REFERENCE_VIEWPORT_SIZE.width,
+    window.innerHeight / REFERENCE_VIEWPORT_SIZE.height,
+  );
+  return {
+    scale,
+    x: (window.innerWidth - REFERENCE_VIEWPORT_SIZE.width * scale) / 2,
+    y: (window.innerHeight - REFERENCE_VIEWPORT_SIZE.height * scale) / 2,
+  };
+}
+
 export function MapShell({ stations, assistantSearchEnabled = false, routePlannerEnabled = false }: MapShellProps) {
-  const shellRef = useRef<HTMLDivElement | null>(null);
   const [viewState, setViewState] = useState<ViewState>(INITIAL_VIEW_STATE);
-  const [viewportSize, setViewportSize] = useState<ViewportSize>({ width: 1024, height: 768 });
+  const [stageTransform, setStageTransform] = useState<StageTransform>(getStageTransform);
   const [selected, setSelected] = useState<ChargerFeature | null>(null);
   const [assistantResults, setAssistantResults] = useState<ChargerFeature[] | null>(null);
   const [routePlanResult, setRoutePlanResult] = useState<RouteChargingPlanResponse | null>(null);
@@ -43,7 +64,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
   const viewportStationsEnabled = isViewportStationsFlagEnabled(import.meta.env.VITE_ENABLE_VIEWPORT_STATIONS);
   const viewportStations = useViewportStations({
     viewState,
-    viewport: viewportSize,
+    viewport: REFERENCE_VIEWPORT_SIZE,
     enabled: viewportStationsEnabled,
   });
   const baseStations = viewportStations.enabled ? viewportStations.stations : stations;
@@ -69,20 +90,14 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
   );
 
   useEffect(() => {
-    if ((!viewportStationsEnabled && !routePlannerEnabled) || !shellRef.current) return;
-
-    const updateViewportSize = () => {
-      const rect = shellRef.current?.getBoundingClientRect();
-      if (rect && rect.width > 0 && rect.height > 0) {
-        setViewportSize({ width: rect.width, height: rect.height });
-      }
+    const updateStageScale = () => {
+      setStageTransform(getStageTransform());
     };
 
-    updateViewportSize();
-    const observer = new ResizeObserver(updateViewportSize);
-    observer.observe(shellRef.current);
-    return () => observer.disconnect();
-  }, [routePlannerEnabled, viewportStationsEnabled]);
+    updateStageScale();
+    window.addEventListener('resize', updateStageScale);
+    return () => window.removeEventListener('resize', updateStageScale);
+  }, []);
 
   const stationLayer = useMemo(
     () =>
@@ -142,87 +157,96 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
   );
 
   return (
-    <div ref={shellRef} className={`map-shell${rightPanelsEnabled ? ' right-panels-enabled' : ''}`}>
-      <DeckGL
-        layers={layers}
-        viewState={viewState}
-        onViewStateChange={({ viewState: nextViewState }: { viewState: ViewState }) => setViewState(nextViewState)}
-        controller={{ dragPan: true, scrollZoom: true, doubleClickZoom: false, dragRotate: false }}
+    <div className="map-shell-frame">
+      <div
+        className={`map-shell${rightPanelsEnabled ? ' right-panels-enabled' : ''}`}
+        style={{
+          transform: `translate(${stageTransform.x}px, ${stageTransform.y}px) scale(${stageTransform.scale})`,
+        }}
       >
-        <Map reuseMaps mapStyle={MAP_STYLE_URL} />
-      </DeckGL>
+        <DeckGL
+          layers={layers}
+          viewState={viewState}
+          onViewStateChange={({ viewState: nextViewState }: { viewState: ViewState }) => setViewState(nextViewState)}
+          controller={{ dragPan: true, scrollZoom: true, doubleClickZoom: false, dragRotate: false }}
+        >
+          <Map reuseMaps mapStyle={MAP_STYLE_URL} />
+        </DeckGL>
 
-      <aside className="summary-panel">
-        <p className="eyebrow">ChargeFlow KR</p>
-        <h1>Korean charger intelligence map</h1>
-        <dl>
-          <div>
-            <dt>Loaded stations</dt>
-            <dd>{validStations.length.toLocaleString()}</dd>
-          </div>
-          <div>
-            <dt>Data mode</dt>
-            <dd>{dataMode}</dd>
-          </div>
-        </dl>
-      </aside>
-
-      {rightPanelsEnabled && (
-        <div className="right-panel-stack">
-          {assistantSearchEnabled && (
-            <SearchAssistantPanel
-              onApplyResults={(features) => {
-                setAssistantResults(features);
-                setSelected(null);
-              }}
-              onClearResults={() => setAssistantResults(null)}
-            />
-          )}
-          {routePlannerEnabled && (
-            <RoutePlannerPanel
-              onApplyPlan={(result, route) => {
-                setRoutePlanResult(result);
-                setRoutePlanRoute(route);
-                setViewState((currentViewState) => getRouteFitViewState(route, viewportSize, currentViewState));
-              }}
-              onSelectRecommendation={handleSelectRouteRecommendation}
-              onClearRecommendations={() => {
-                setRoutePlanResult(null);
-                setRoutePlanRoute(null);
-              }}
-            />
-          )}
-        </div>
-      )}
-
-      {selected && (
-        <aside className="detail-panel">
-          <button type="button" aria-label="Close station details" onClick={() => setSelected(null)}>
-            x
-          </button>
-          <p className="eyebrow">{selected.properties.operator}</p>
-          <h2>{selected.properties.charger_name}</h2>
-          <p>{selected.properties.address}</p>
+        <aside className="summary-panel">
+          <p className="eyebrow">ChargeFlow KR</p>
+          <h1>Korean charger intelligence map</h1>
           <dl>
             <div>
-              <dt>Status</dt>
-              <dd>{selected.properties.status}</dd>
+              <dt>Loaded stations</dt>
+              <dd>{validStations.length.toLocaleString()}</dd>
             </div>
             <div>
-              <dt>Power</dt>
-              <dd>{selected.properties.max_kw} kW</dd>
-            </div>
-            <div>
-              <dt>Connector</dt>
-              <dd>{selected.properties.connector_type}</dd>
-            </div>
-            <div>
-              <dt>Updated</dt>
-              <dd>{selected.properties.status_updated_at}</dd>
+              <dt>Data mode</dt>
+              <dd>{dataMode}</dd>
             </div>
           </dl>
         </aside>
-      )}
+
+        {rightPanelsEnabled && (
+          <div className="right-panel-stack">
+            {assistantSearchEnabled && (
+              <SearchAssistantPanel
+                onApplyResults={(features) => {
+                  setAssistantResults(features);
+                  setSelected(null);
+                }}
+                onClearResults={() => setAssistantResults(null)}
+              />
+            )}
+            {routePlannerEnabled && (
+              <RoutePlannerPanel
+                onApplyPlan={(result, route) => {
+                  setRoutePlanResult(result);
+                  setRoutePlanRoute(route);
+                  setViewState((currentViewState) =>
+                    getRouteFitViewState(route, REFERENCE_VIEWPORT_SIZE, currentViewState),
+                  );
+                }}
+                onSelectRecommendation={handleSelectRouteRecommendation}
+                onClearRecommendations={() => {
+                  setRoutePlanResult(null);
+                  setRoutePlanRoute(null);
+                }}
+              />
+            )}
+          </div>
+        )}
+
+        {selected && (
+          <aside className="detail-panel">
+            <button type="button" aria-label="Close station details" onClick={() => setSelected(null)}>
+              x
+            </button>
+            <p className="eyebrow">{selected.properties.operator}</p>
+            <h2>{selected.properties.charger_name}</h2>
+            <p>{selected.properties.address}</p>
+            <dl>
+              <div>
+                <dt>Status</dt>
+                <dd>{selected.properties.status}</dd>
+              </div>
+              <div>
+                <dt>Power</dt>
+                <dd>{selected.properties.max_kw} kW</dd>
+              </div>
+              <div>
+                <dt>Connector</dt>
+                <dd>{selected.properties.connector_type}</dd>
+              </div>
+              <div>
+                <dt>Updated</dt>
+                <dd>{selected.properties.status_updated_at}</dd>
+              </div>
+            </dl>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }
