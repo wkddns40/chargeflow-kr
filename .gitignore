@@ -8,6 +8,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!frontend/.env.demo
 *.pyc
 *.log
 *.sqlite
