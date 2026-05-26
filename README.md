@@ -45,7 +45,18 @@ Frontend defaults to `VITE_DEMO_MODE=true`, reading `frontend/public/sample-char
 
 ## Live Demo
 
-No production live demo is published for ChargeFlow KR yet.
+Production demo:
+
+- Frontend: https://chargeflow-kr.vercel.app/
+- API health: https://chargeflow-kr-api.vercel.app/healthz
+
+The production frontend is built with:
+
+- `VITE_DEMO_MODE=false`
+- `VITE_ENABLE_VIEWPORT_STATIONS=true`
+- `VITE_ENABLE_LLM_SEARCH=true`
+- `VITE_ENABLE_ROUTE_PLANNER=true`
+- `VITE_API_BASE_URL=https://chargeflow-kr-api.vercel.app`
 
 Local demo modes:
 
