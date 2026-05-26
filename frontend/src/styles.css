@@ -13,18 +13,29 @@ body {
   color: #111827;
 }
 
-.map-shell {
+.map-shell-frame {
   position: relative;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  background: #0f172a;
+}
+
+.map-shell {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2048px;
+  height: 1024px;
+  overflow: hidden;
+  transform-origin: top left;
 }
 
 .summary-panel,
 .detail-panel,
 .assistant-panel,
 .route-planner-panel {
-  width: min(360px, calc(100vw - 32px));
+  width: 360px;
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(15, 23, 42, 0.12);
   border-radius: 8px;
@@ -42,9 +53,9 @@ body {
 .right-panel-stack {
   top: 16px;
   right: 16px;
-  width: min(360px, calc(100vw - 32px));
+  width: 360px;
   display: grid;
-  max-height: calc(100vh - 32px);
+  max-height: 992px;
   gap: 14px;
   overflow: auto;
 }
@@ -328,39 +339,4 @@ dd {
   min-height: 100vh;
   place-items: center;
   color: #f8fafc;
-}
-
-@media (max-width: 760px) {
-  .summary-panel,
-  .assistant-panel,
-  .route-planner-panel,
-  .detail-panel {
-    width: calc(100vw - 24px);
-    padding: 14px;
-  }
-
-  .summary-panel {
-    top: 12px;
-    left: 12px;
-  }
-
-  .right-panel-stack {
-    top: auto;
-    right: 12px;
-    bottom: 12px;
-    width: calc(100vw - 24px);
-    max-height: 52vh;
-  }
-
-  .right-panels-enabled .summary-panel {
-    display: none;
-  }
-
-  .detail-panel {
-    top: 12px;
-    right: 12px;
-    bottom: auto;
-    max-height: calc(48vh - 24px);
-    overflow: auto;
-  }
 }
