@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.api import routes
 from app.main import create_app
 from app.schemas.route_planner import RouteChargingPlanRequest, RouteChargingPlanResponse
+from station_query import contains_coordinate
 
 
 def client() -> TestClient:
@@ -62,15 +63,17 @@ def route_request(**overrides) -> dict:
 
 
 def test_charging_plan_endpoint_returns_graph_response(monkeypatch) -> None:
-    monkeypatch.setattr(
-        routes,
-        "load_station_features",
-        lambda: [
+    def fake_loader(bbox: tuple[float, float, float, float], limit: int) -> list[dict]:
+        assert contains_coordinate(bbox, 0.0, 0.0)
+        assert contains_coordinate(bbox, 0.0, 1.0)
+        assert limit == routes.ROUTE_PREFETCH_LIMIT
+        return [
             station_feature("CFL-SYN-00002", 0.0, 0.58, max_kw=50.0),
             station_feature("CFL-SYN-00001", 0.0, 0.43),
             station_feature("outside", 1.0, 0.43),
-        ],
-    )
+        ]
+
+    monkeypatch.setattr(routes, "load_db_station_features", fake_loader)
 
     response = client().post("/api/routes/charging-plan", json=route_request())
 
@@ -89,8 +92,8 @@ def test_charging_plan_endpoint_returns_graph_response(monkeypatch) -> None:
 def test_charging_plan_endpoint_derives_reference_time_from_station_status(monkeypatch) -> None:
     monkeypatch.setattr(
         routes,
-        "load_station_features",
-        lambda: [station_feature("CFL-SYN-00001", 0.0, 0.43)],
+        "load_db_station_features",
+        lambda bbox, limit: [station_feature("CFL-SYN-00001", 0.0, 0.43)],
     )
     payload = route_request()
     del payload["reference_time"]
@@ -102,7 +105,10 @@ def test_charging_plan_endpoint_derives_reference_time_from_station_status(monke
 
 
 def test_charging_plan_endpoint_returns_graph_errors_as_bad_request(monkeypatch) -> None:
-    monkeypatch.setattr(routes, "load_station_features", lambda: [station_feature("CFL-SYN-00001", 0.0, 0.43)])
+    def fail_loader(*args: object) -> list[dict]:
+        pytest.fail("database loader should not run for invalid routes")
+
+    monkeypatch.setattr(routes, "load_db_station_features", fail_loader)
 
     response = client().post("/api/routes/charging-plan", json=route_request(route={"polyline": [[0.0, 0.0]]}))
 
@@ -111,7 +117,10 @@ def test_charging_plan_endpoint_returns_graph_errors_as_bad_request(monkeypatch)
 
 
 def test_charging_plan_endpoint_keeps_request_errors_in_graph(monkeypatch) -> None:
-    monkeypatch.setattr(routes, "load_station_features", lambda: [station_feature("CFL-SYN-00001", 0.0, 0.43)])
+    def fail_loader(*args: object) -> list[dict]:
+        pytest.fail("database loader should not run for invalid routes")
+
+    monkeypatch.setattr(routes, "load_db_station_features", fail_loader)
 
     response = client().post("/api/routes/charging-plan", json={"vehicle": route_request()["vehicle"]})
 
@@ -124,16 +133,25 @@ def test_charging_plan_endpoint_keeps_request_errors_in_graph(monkeypatch) -> No
     assert RouteChargingPlanRequest.model_validate({"route": "not-a-route"}).route == "not-a-route"
 
 
-def test_charging_plan_endpoint_reports_station_fixture_errors(monkeypatch) -> None:
-    def raise_missing_fixture() -> list[dict]:
-        raise FileNotFoundError("Synthetic station fixture not found: missing.geojson")
+def test_charging_plan_endpoint_reports_database_errors_without_secrets(monkeypatch) -> None:
+    def broken_loader(*args: object) -> list[dict]:
+        raise RuntimeError("could not connect with password=secret")
 
-    monkeypatch.setattr(routes, "load_station_features", raise_missing_fixture)
+    monkeypatch.setattr(routes, "load_db_station_features", broken_loader)
 
     response = client().post("/api/routes/charging-plan", json=route_request())
 
     assert response.status_code == 500
-    assert "Synthetic station fixture not found" in response.json()["detail"]
+    assert response.json()["detail"] == "station database query failed"
+
+
+def test_route_bbox_from_payload_uses_route_polyline_and_corridor_width() -> None:
+    bbox = routes.route_bbox_from_payload(route_request())
+
+    assert contains_coordinate(bbox, 0.0, 0.0)
+    assert contains_coordinate(bbox, 0.0, 1.0)
+    assert bbox[0] < 0.0 < bbox[2]
+    assert bbox[1] < 0.0 < bbox[3]
 
 
 def test_charging_plan_endpoint_openapi_uses_response_schema() -> None:
