@@ -217,6 +217,30 @@ def test_openai_parser_strips_trailing_nearby_from_place(monkeypatch: pytest.Mon
     assert result.command["place"] == "홍대입구역"
 
 
+def test_openai_parser_removes_unstated_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(*args: object, **kwargs: object) -> FakeOpenAIResponse:
+        return FakeOpenAIResponse(
+            {
+                "output_text": (
+                    '{"type":"search_command","message":"","missing_fields":[],'
+                    '"command":{"intent":"find_chargers","place":"홍대입구역","radius_m":2000,'
+                    '"filters":{"min_kw":150,"status":"available","connector_type":"DC"},'
+                    '"sort":"power"}}'
+                )
+            }
+        )
+
+    monkeypatch.setattr(nl_search_parser.httpx, "post", fake_post)
+
+    result = parse_natural_language_search(
+        {"message": "홍대입구역 근처 급속 충전기"},
+        openai_api_key="sk-test",
+    )
+
+    assert isinstance(result, ParsedNaturalLanguageSearch)
+    assert result.command["filters"] == {"connector_type": "DC"}
+
+
 def test_openai_parser_falls_back_to_deterministic_parser(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_post(*args: object, **kwargs: object) -> None:
         raise nl_search_parser.httpx.TimeoutException("timeout")

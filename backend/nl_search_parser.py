@@ -115,6 +115,7 @@ AC_PHRASES = (
     "\uc644\uc18d",
 )
 CHADEMO_PHRASES = ("chademo", "cha demo")
+DC_COMBO_PHRASES = ("dc combo", "dc콤보", "dc 콤보", "디씨콤보", "디씨 콤보")
 
 STATUS_PHRASES = (
     ("available", "available"),
@@ -260,6 +261,7 @@ def _parse_with_openai(
         raise NaturalLanguageProviderError("OpenAI command response is invalid")
     clean_command = _clean_openai_command(command)
     clean_command["place"] = _apply_area_context_to_place(message, clean_command.get("place"))
+    clean_command = _enforce_explicit_filters(message, clean_command)
     return ParsedNaturalLanguageSearch(
         message=message,
         command=clean_command,
@@ -394,6 +396,21 @@ def _apply_area_context_to_place(message: str, place: Any) -> Any:
     if AREA_CONTEXT_RE.search(stripped) or stripped.endswith(("역", "공항", "터미널", "Station", "Airport", "Terminal")):
         return stripped
     return f"{stripped} 전체"
+
+
+def _enforce_explicit_filters(message: str, command: dict[str, Any]) -> dict[str, Any]:
+    filters = command.get("filters")
+    if not isinstance(filters, dict):
+        return command
+
+    normalized = normalize_place_name(message)
+    if filters.get("min_kw") is not None and _extract_min_kw(message) is None:
+        filters.pop("min_kw", None)
+    if filters.get("status") is not None and _extract_status(normalized) != filters.get("status"):
+        filters.pop("status", None)
+    if filters.get("connector_type") is not None and _extract_connector_type(normalized) != filters.get("connector_type"):
+        filters.pop("connector_type", None)
+    return command
 
 
 def _openai_system_prompt() -> str:
@@ -543,7 +560,7 @@ def _extract_min_kw(message: str) -> int | None:
 def _extract_connector_type(normalized: str) -> str | None:
     if any(phrase in normalized for phrase in CHADEMO_PHRASES):
         return "CHAdeMO"
-    if "dc combo" in normalized:
+    if any(phrase in normalized for phrase in DC_COMBO_PHRASES):
         return "DC Combo"
     if "ac type 2" in normalized:
         return "AC Type 2"
