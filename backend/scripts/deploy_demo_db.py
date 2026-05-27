@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from seed_demo_db import DEFAULT_FIXTURE, DEFAULT_SOURCE, seed_fixture
+from seed_places import build_places_from_sources, seed_places
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCHEMA = BACKEND_ROOT / "app" / "db" / "schema.sql"
@@ -30,13 +31,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", default=DEFAULT_SOURCE, help="source label for status_events")
     parser.add_argument("--skip-schema", action="store_true", help="skip schema application")
     parser.add_argument("--skip-seed", action="store_true", help="skip synthetic snapshot seed")
+    parser.add_argument("--skip-place-seed", action="store_true", help="skip place resolver seed")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.skip_schema and args.skip_seed:
+    if args.skip_schema and args.skip_seed and args.skip_place_seed:
         parser.error("at least one of schema application or seed must run")
     if not args.database_url:
         parser.error("--database-url or DATABASE_URL is required")
@@ -60,6 +62,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"{summary.connector_count} connectors, "
             f"{summary.status_event_count} status events "
             f"from {summary.fixture} ({summary.raw_file_hash})"
+        )
+
+    if not args.skip_place_seed:
+        place_summary = seed_places(args.database_url, build_places_from_sources())
+        print(
+            "seeded "
+            f"{place_summary.place_count} places, "
+            f"{place_summary.alias_count} aliases "
+            f"({place_summary.station_count} stations, {place_summary.region_count} regions)"
         )
 
 

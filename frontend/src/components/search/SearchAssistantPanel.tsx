@@ -5,7 +5,9 @@ import {
   fetchNaturalLanguageChargerSearch,
   isNaturalLanguageSearchResult,
   type ChargerSearchCommand,
+  type ChargerSearchClarificationResponse,
   type ChargerSearchResponse,
+  type PlaceCandidate,
 } from '../../lib/llmSearch';
 import type { ChargerFeature } from '../../types/charger';
 
@@ -98,6 +100,17 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults }: SearchA
   function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     chatMutation.mutate(message);
+  }
+
+  function handleCandidateSelect(candidate: PlaceCandidate) {
+    if (!clarification?.command) {
+      setMessage(candidate.name);
+      return;
+    }
+
+    const nextCommand = { ...clarification.command, place: candidate.name };
+    setPlace(candidate.name);
+    typedMutation.mutate(nextCommand);
   }
 
   function handleClear() {
@@ -200,10 +213,39 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults }: SearchA
       </details>
 
       {hasError && <p className="assistant-message">Search failed. Check place or filters.</p>}
-      {clarification && <p className="assistant-message">{clarification.message}</p>}
+      {clarification && <ClarificationPanel clarification={clarification} onSelectCandidate={handleCandidateSelect} />}
       {latest && !hasResults && <p className="assistant-message">No local matches.</p>}
       {latest && hasResults && <SearchResultList result={latest} />}
     </aside>
+  );
+}
+
+function ClarificationPanel({
+  clarification,
+  onSelectCandidate,
+}: {
+  clarification: ChargerSearchClarificationResponse;
+  onSelectCandidate: (candidate: PlaceCandidate) => void;
+}) {
+  return (
+    <div className="assistant-clarification">
+      <p className="assistant-message">{clarification.message}</p>
+      {clarification.candidates && clarification.candidates.length > 0 && (
+        <div className="assistant-candidates">
+          {clarification.candidates.slice(0, 6).map((candidate) => (
+            <button
+              key={candidate.place_id}
+              type="button"
+              className="assistant-candidate-button"
+              onClick={() => onSelectCandidate(candidate)}
+            >
+              <strong>{candidate.name}</strong>
+              <span>{candidate.place_type}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

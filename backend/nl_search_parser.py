@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from geocoding import PLACE_INDEX, normalize_place_name
+from geocoding import normalize_place_name
 from search_schema import SUSPICIOUS_TEXT
 
 
@@ -22,6 +22,14 @@ OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 
 RADIUS_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>km|kilometers?|m|meters?)\b", re.IGNORECASE)
 MIN_KW_RE = re.compile(r"(?P<value>\d{1,4})\s*(?:kw|kilowatts?)\b", re.IGNORECASE)
+AREA_CONTEXT_RE = re.compile(r"(전체|전역|지역|일대|도시)")
+PLACE_TRAILING_CONTEXT_RE = re.compile(r"\s*(근처|주변|인근|부근|nearby|near)\s*$", re.IGNORECASE)
+ENGLISH_PLACE_RE = re.compile(
+    r"\b(?P<place>[A-Z][A-Za-z0-9 .'-]{1,40}\s(?:Station|Airport|Terminal|City|District|County|Province))\b"
+)
+KOREAN_PLACE_RE = re.compile(
+    r"(?P<place>[가-힣A-Za-z0-9·.'-]{1,32}(?:역|공항|터미널|특별시|광역시|특별자치시|특별자치도|자치도|도|시|군|구|읍|면|동))"
+)
 
 EXTRA_PLACE_ALIASES = {
     "\uac15\ub0a8\uc5ed": "Gangnam Station",
@@ -32,6 +40,44 @@ EXTRA_PLACE_ALIASES = {
     "\uc81c\uc8fc \uacf5\ud56d": "Jeju Airport",
     "\uc81c\uc8fc\uad6d\uc81c\uacf5\ud56d": "Jeju Airport",
 }
+
+KOREA_REGION_TERMS = (
+    "수도권",
+    "서울특별시",
+    "서울",
+    "부산광역시",
+    "부산",
+    "대구광역시",
+    "대구",
+    "인천광역시",
+    "인천",
+    "광주광역시",
+    "광주",
+    "대전광역시",
+    "대전",
+    "울산광역시",
+    "울산",
+    "세종특별자치시",
+    "세종",
+    "경기도",
+    "경기",
+    "강원특별자치도",
+    "강원",
+    "충청북도",
+    "충북",
+    "충청남도",
+    "충남",
+    "전북특별자치도",
+    "전북",
+    "전라남도",
+    "전남",
+    "경상북도",
+    "경북",
+    "경상남도",
+    "경남",
+    "제주특별자치도",
+    "제주",
+)
 
 UNSUPPORTED_INTENT_PHRASES = (
     ("reserve", "reserve_charger"),
@@ -152,10 +198,10 @@ def parse_natural_language_search(
 
 def parse_deterministic_message(message: str) -> ParsedNaturalLanguageSearch | ClarificationRequired:
     normalized = normalize_place_name(message)
-    place = _extract_place(normalized)
+    place = _extract_place(message)
     if place is None:
         return ClarificationRequired(
-            message="Search needs a place. Try: Gangnam Station nearby chargers.",
+            message="Search needs a place. Try: 홍대입구역 근처 급속 충전기.",
             missing_fields=("place",),
         )
 
@@ -212,9 +258,11 @@ def _parse_with_openai(
     command = parsed.get("command")
     if not isinstance(command, Mapping):
         raise NaturalLanguageProviderError("OpenAI command response is invalid")
+    clean_command = _clean_openai_command(command)
+    clean_command["place"] = _apply_area_context_to_place(message, clean_command.get("place"))
     return ParsedNaturalLanguageSearch(
         message=message,
-        command=_clean_openai_command(command),
+        command=clean_command,
         parser=f"{OPENAI_PARSER_VERSION}:{model}",
     )
 
@@ -326,29 +374,46 @@ def _clean_openai_command(command: Mapping[str, Any]) -> dict[str, Any]:
     }
     return {
         "intent": command.get("intent"),
-        "place": command.get("place"),
+        "place": _clean_openai_place(command.get("place")),
         "radius_m": command.get("radius_m"),
         "filters": clean_filters,
         "sort": command.get("sort"),
     }
 
 
+def _clean_openai_place(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    return _clean_place_phrase(value)
+
+
+def _apply_area_context_to_place(message: str, place: Any) -> Any:
+    if not isinstance(place, str) or not place.strip() or not AREA_CONTEXT_RE.search(message):
+        return place
+    stripped = place.strip()
+    if AREA_CONTEXT_RE.search(stripped) or stripped.endswith(("역", "공항", "터미널", "Station", "Airport", "Terminal")):
+        return stripped
+    return f"{stripped} 전체"
+
+
 def _openai_system_prompt() -> str:
     return (
         "You parse user free text into a local EV charger search command. "
-        "Only use supported places: Gangnam Station, Seoul Station, Jeju Airport. "
-        "Return canonical English place names. Place aliases: "
-        "Gangnam Station = Gangnam, Gangnam Station, \uac15\ub0a8\uc5ed, \uac15\ub0a8 \uc5ed; "
-        "Seoul Station = Seoul Station, \uc11c\uc6b8\uc5ed, \uc11c\uc6b8 \uc5ed; "
-        "Jeju Airport = Jeju Airport, Jeju International Airport, \uc81c\uc8fc\uacf5\ud56d, "
-        "\uc81c\uc8fc \uacf5\ud56d, \uc81c\uc8fc\uad6d\uc81c\uacf5\ud56d. "
-        "Supported intent is only find_chargers. If the place is missing or unsupported, "
+        "Supported intent is only find_chargers. Extract only the user's place phrase into command.place; "
+        "do not geocode it, translate it, canonicalize it, choose coordinates, or decide whether it is supported. "
+        "The backend resolver owns place lookup and disambiguation. "
+        "For Korean input, keep Korean station/region phrases such as 홍대입구역, 강남구, 서울, 부산역. "
+        "If the user asks for a whole area with words like 전체, 전역, 지역, or 도시, keep that qualifier "
+        "in the place phrase, for example 서울 전체, 부산 전체, or 수도권 전체. "
+        "For English input, keep concise phrases such as Gangnam Station or Busan Station. "
+        "If the place phrase is missing, "
         "return clarification_required with missing_fields containing place. "
         "Use radius_m from text; default to 2000 for nearby searches. "
         "Map Korean and English charger wording to filters: fast/rapid/quick/DC "
         "and Korean fast-charger words -> DC, slow/AC and Korean slow-charger words -> AC, "
         "available/free and Korean available words -> available, occupied/busy/in-use words -> occupied, "
         "offline/broken/fault words -> offline, unknown/no-status words -> unknown. "
+        "Only set status when availability, occupancy, offline, or unknown status is explicitly requested. "
         "Map high power or kW-focused requests to sort=power unless nearest/distance is explicit. "
         "Do not invent charger facts, coordinates, SQL, or external data."
     )
@@ -417,23 +482,44 @@ def _reject_unsupported_intent(normalized: str) -> None:
             raise UnsupportedNaturalLanguageIntentError(f"unsupported intent: {intent}")
 
 
-def _extract_place(normalized: str) -> str | None:
+def _extract_place(message: str) -> str | None:
     matches: list[tuple[int, str]] = []
+    normalized = normalize_place_name(message)
 
-    for alias, place in PLACE_INDEX.items():
-        if alias and alias in normalized:
-            matches.append((len(alias), place.name))
+    for match in KOREAN_PLACE_RE.finditer(message):
+        place = _clean_place_phrase(match.group("place"))
+        if place:
+            matches.append((len(place), place))
+
+    for match in ENGLISH_PLACE_RE.finditer(message):
+        place = _clean_place_phrase(match.group("place"))
+        if place:
+            matches.append((len(place), place))
 
     for alias, canonical_name in EXTRA_PLACE_ALIASES.items():
         normalized_alias = normalize_place_name(alias)
         if normalized_alias in normalized:
             matches.append((len(normalized_alias), canonical_name))
 
+    for term in KOREA_REGION_TERMS:
+        if term in message:
+            place_phrase = f"{term} 전체" if AREA_CONTEXT_RE.search(message) else term
+            matches.append((len(place_phrase), place_phrase))
+
     if not matches:
         return None
 
     matches.sort(reverse=True)
     return matches[0][1]
+
+
+def _clean_place_phrase(place: str) -> str:
+    cleaned = place.strip(" ,.;:()[]{}\"'")
+    while True:
+        next_value = PLACE_TRAILING_CONTEXT_RE.sub("", cleaned).strip(" ,.;:()[]{}\"'")
+        if next_value == cleaned:
+            return cleaned
+        cleaned = next_value
 
 
 def _extract_radius_m(message: str) -> int:

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.api import search
 from app.main import create_app
+from geocoding import PLACE_INDEX, lookup_place
 from station_query import contains_coordinate
 
 
@@ -17,6 +18,7 @@ class TestSettings:
 @pytest.fixture(autouse=True)
 def disable_openai_parser(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(search, "get_settings", lambda: TestSettings())
+    monkeypatch.setattr(search, "lookup_place", lambda place_name: lookup_place(place_name, PLACE_INDEX))
 
 
 def client() -> TestClient:
@@ -179,7 +181,7 @@ def test_natural_language_search_requires_place() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "type": "clarification_required",
-        "message": "Search needs a place. Try: Gangnam Station nearby chargers.",
+        "message": "Search needs a place. Try: 홍대입구역 근처 급속 충전기.",
         "missing_fields": ["place"],
     }
 

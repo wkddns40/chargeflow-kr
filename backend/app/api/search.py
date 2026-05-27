@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.stations import MAX_LIMIT, STATION_SOURCE, load_db_station_features
 from app.core.config import get_settings
-from geocoding import UnknownPlaceError, lookup_place
+from geocoding import AmbiguousPlaceError, UnknownPlaceError, lookup_place
 from nl_search_parser import (
     ClarificationRequired,
     NaturalLanguageSearchError,
@@ -56,6 +56,11 @@ def search_chargers_nl(payload: dict[str, Any]) -> dict:
 
         command = validate_search_command(parsed.command)
         response = execute_search(command)
+    except AmbiguousPlaceError as exc:
+        clarification = exc.to_dict()
+        if "command" in locals():
+            clarification["command"] = command.to_dict()
+        return clarification
     except (NaturalLanguageSearchError, SearchCommandError, UnknownPlaceError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except (psycopg.Error, ValueError, RuntimeError) as exc:
@@ -75,16 +80,18 @@ def natural_language_input_metadata(parsed: ParsedNaturalLanguageSearch, command
     return {
         "message": parsed.message,
         "parser": parsed.parser,
+        "place_phrase": command.place,
         "command": command.to_dict(),
     }
 
 
 def execute_search(command: SearchCommand) -> dict:
     place = lookup_place(command.place)
-    bbox = bbox_for_radius(place.lon, place.lat, command.radius_m)
+    bbox = place.bbox if place.is_area and place.bbox is not None else bbox_for_radius(place.lon, place.lat, command.radius_m)
+    enforce_radius = not place.is_area
 
     features = load_db_station_features(bbox, SEARCH_PREFILTER_LIMIT)
-    matched = search_station_features(features, place.lon, place.lat, command, bbox)
+    matched = search_station_features(features, place.lon, place.lat, command, bbox, enforce_radius=enforce_radius)
 
     return {
         "query": {
@@ -113,6 +120,8 @@ def search_station_features(
     center_lat: float,
     command: SearchCommand,
     bbox: BBox | None = None,
+    *,
+    enforce_radius: bool = True,
 ) -> list[Feature]:
     search_bbox = bbox or bbox_for_radius(center_lon, center_lat, command.radius_m)
     results: list[Feature] = []
@@ -123,7 +132,7 @@ def search_station_features(
             continue
 
         distance_m = haversine_m(center_lon, center_lat, lon, lat)
-        if distance_m > command.radius_m:
+        if enforce_radius and distance_m > command.radius_m:
             continue
         if not matches_filters(feature, command):
             continue

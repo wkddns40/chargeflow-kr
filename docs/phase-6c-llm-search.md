@@ -12,8 +12,9 @@ As of 2026-05-27:
 - The backend uses OpenAI Responses API structured output when a server-side OpenAI key is configured.
 - If the provider is unavailable, the backend falls back to the deterministic parser.
 - Every parsed command passes through `validate_search_command()`.
-- Search execution reuses the existing local geocoder, PostGIS-backed station query, radius filter, status/power/connector filters, and sort path.
-- Missing place input returns `type="clarification_required"` without applying map results.
+- Search execution uses DB-backed `places` / `place_aliases` lookup, PostGIS-backed station query, radius or area bbox filtering, status/power/connector filters, and sort path.
+- Missing or ambiguous place input returns `type="clarification_required"` without applying map results.
+- Place seed covers OSM Korea railway/subway stations plus ArcGIS EMD 시도/시군구/읍면동 regions and a 수도권 aggregate.
 - Unsupported intents and SQL-like control text return stable 400 errors.
 - The frontend assistant is chat-first and keeps structured search controls as a fallback.
 
@@ -28,7 +29,7 @@ Included:
 - Validation rules.
 - Korean query examples.
 - Hallucination prevention rules.
-- Local dataset limitation notes.
+- DB-backed place resolver and ambiguity handling.
 
 Deferred:
 
@@ -69,7 +70,7 @@ flowchart LR
     user[User Korean query] --> llm[LLM intent parser]
     llm --> command[Typed command JSON]
     command --> validator[Backend schema validation]
-    validator --> geocode[Local place lookup]
+    validator --> geocode[DB-backed place resolver]
     geocode --> spatial[Local spatial filter]
     spatial --> station_api[Station and status datasets]
     station_api --> response[Structured search response]
@@ -81,7 +82,7 @@ Rules:
 
 - The LLM output is only accepted as data.
 - Backend validation is authoritative.
-- Local place lookup is authoritative for coordinates.
+- DB-backed place lookup is authoritative for coordinates and duplicate-name clarification.
 - Local station and status datasets are authoritative for charger facts.
 - The frontend displays backend result objects, not unsupported LLM claims.
 
@@ -108,7 +109,7 @@ Fields:
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `intent` | string enum | yes | Initial value: `find_chargers`. Unknown intents are rejected. |
-| `place` | string | yes | Korean place name resolved through a local fixture or local geocoder abstraction. |
+| `place` | string | yes | Place phrase extracted from user text. Coordinates and bbox are resolved by `lookup_place()` through `places` / `place_aliases`. |
 | `radius_m` | integer | yes | Search radius in meters. Backend enforces min and max bounds. |
 | `filters.min_kw` | integer | no | Minimum charger output in kW. |
 | `filters.status` | string enum | no | `available`, `occupied`, `offline`, or `unknown`. |

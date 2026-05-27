@@ -181,6 +181,36 @@ body {
   font-size: 14px;
 }
 
+.assistant-clarification,
+.assistant-candidates {
+  display: grid;
+  gap: 8px;
+}
+
+.assistant-candidate-button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  cursor: pointer;
+  font: inherit;
+  padding: 9px;
+  text-align: left;
+}
+
+.assistant-candidate-button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.assistant-candidate-button span {
+  color: #64748b;
+  font-size: 12px;
+}
+
 .assistant-results {
   display: grid;
   gap: 10px;
