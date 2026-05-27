@@ -5,7 +5,8 @@ import { PathLayer, ScatterplotLayer } from '@deck.gl/layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { ChargerFeature, ViewState } from '../../types/charger';
 import { INITIAL_VIEW_STATE, MAP_STYLE_URL, REFERENCE_VIEWPORT_SIZE } from '../../constants/viewport';
-import { getStationFocusViewState, getStationScreenPosition, getValidData } from '../../lib/geo';
+import { getBboxFitViewState, getStationFocusViewState, getStationScreenPosition, getValidData } from '../../lib/geo';
+import type { ChargerSearchResponse } from '../../lib/llmSearch';
 import type { RouteChargingPlanResponse, RoutePlannerRoute } from '../../lib/routePlanner';
 import {
   findRouteRecommendationStation,
@@ -117,6 +118,14 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
     setAssistantResults([station]);
     setSelected(station);
     setViewState((currentViewState) => getStationFocusViewState(station, currentViewState));
+  }, []);
+  const handleApplyAssistantResults = useCallback((result: ChargerSearchResponse) => {
+    setAssistantResults(result.features);
+    setSelected(null);
+    const bbox = result.query.bbox;
+    if (bbox) {
+      setViewState((currentViewState) => getBboxFitViewState(bbox, REFERENCE_VIEWPORT_SIZE, currentViewState));
+    }
   }, []);
   const handleSelectRouteRecommendation = useCallback(
     (stationId: string) => {
@@ -249,10 +258,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
           <div className="right-panel-stack">
             {assistantSearchEnabled && (
               <SearchAssistantPanel
-                onApplyResults={(features) => {
-                  setAssistantResults(features);
-                  setSelected(null);
-                }}
+                onApplyResults={handleApplyAssistantResults}
                 onSelectResult={handleFocusStation}
                 onClearResults={() => {
                   setAssistantResults(null);

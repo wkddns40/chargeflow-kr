@@ -12,7 +12,7 @@ import {
 import type { ChargerFeature } from '../../types/charger';
 
 type SearchAssistantPanelProps = {
-  onApplyResults: (features: ChargerFeature[]) => void;
+  onApplyResults: (result: ChargerSearchResponse) => void;
   onClearResults: () => void;
   onSelectResult: (feature: ChargerFeature) => void;
 };
@@ -57,7 +57,7 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults, onSelectR
     mutationFn: (command: ChargerSearchCommand) => fetchChargerSearch(command),
     onSuccess: (data) => {
       setLatestSource('typed');
-      onApplyResults(data.features);
+      onApplyResults(data);
     },
   });
 
@@ -66,7 +66,7 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults, onSelectR
     onSuccess: (data) => {
       setLatestSource('chat');
       if (isNaturalLanguageSearchResult(data)) {
-        onApplyResults(data.features);
+        onApplyResults(data);
       }
     },
   });

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { bboxFromViewState, getStationFocusViewState, getStationScreenPosition, toBboxParam } from './geo';
+import {
+  bboxFromViewState,
+  getBboxFitViewState,
+  getStationFocusViewState,
+  getStationScreenPosition,
+  toBboxParam,
+} from './geo';
 import type { ChargerFeature, ViewState } from '../types/charger';
 
 const SEOUL_VIEW: ViewState = {
@@ -66,5 +72,21 @@ describe('getStationScreenPosition', () => {
     const position = getStationScreenPosition(STATION, viewState, { width: 2048, height: 1024 });
 
     expect(position).toEqual({ x: 1024, y: 512 });
+  });
+});
+
+describe('getBboxFitViewState', () => {
+  it('centers the map on the provided search bbox', () => {
+    const viewState = getBboxFitViewState(
+      { west: 129.02, south: 35.08, east: 129.08, north: 35.14 },
+      { width: 2048, height: 1024 },
+      SEOUL_VIEW,
+    );
+
+    expect(viewState.longitude).toBeCloseTo(129.05);
+    expect(viewState.latitude).toBeCloseTo(35.11);
+    expect(viewState.zoom).toBeGreaterThan(SEOUL_VIEW.zoom);
+    expect(viewState.pitch).toBe(SEOUL_VIEW.pitch);
+    expect(viewState.bearing).toBe(SEOUL_VIEW.bearing);
   });
 });
