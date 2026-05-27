@@ -16,7 +16,11 @@ import {
   matchRouteRecommendationStations,
   type RoutePathLayerData,
 } from '../../lib/routePlannerMap';
-import { isViewportStationsFlagEnabled, useViewportStations } from '../../hooks/useViewportStations';
+import {
+  DEFAULT_VIEWPORT_STATION_LIMIT,
+  isViewportStationsFlagEnabled,
+  useViewportStations,
+} from '../../hooks/useViewportStations';
 import { SearchAssistantPanel } from '../search/SearchAssistantPanel';
 import { RoutePlannerPanel } from '../route/RoutePlannerPanel';
 
@@ -40,6 +44,7 @@ const STATUS_COLORS: Record<ChargerFeature['properties']['status'], [number, num
 };
 const SELECTED_MARKER_MIN_RADIUS = 28;
 const SELECTED_MARKER_MAX_RADIUS = 40;
+const ROUTE_PLAN_VIEWPORT_STATION_LIMIT = 7000;
 
 function getStageTransform(): StageTransform {
   if (typeof window === 'undefined') {
@@ -86,6 +91,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
     viewState,
     viewport: REFERENCE_VIEWPORT_SIZE,
     enabled: viewportStationsEnabled,
+    limit: routePlanRoute ? ROUTE_PLAN_VIEWPORT_STATION_LIMIT : DEFAULT_VIEWPORT_STATION_LIMIT,
   });
   const baseStations = viewportStations.enabled ? viewportStations.stations : stations;
   const layerStations = assistantResults ?? baseStations;
