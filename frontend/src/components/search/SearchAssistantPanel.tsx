@@ -41,10 +41,11 @@ const SORT_OPTIONS = [
 ] as const;
 
 const DEFAULT_CHAT_MESSAGE = 'Gangnam Station nearby 2km fast chargers';
+const DEFAULT_PLACE = 'Gangnam Station';
 
 export function SearchAssistantPanel({ onApplyResults, onClearResults, onSelectResult }: SearchAssistantPanelProps) {
   const [message, setMessage] = useState(DEFAULT_CHAT_MESSAGE);
-  const [place, setPlace] = useState('Gangnam Station');
+  const [place, setPlace] = useState(DEFAULT_PLACE);
   const [radiusM, setRadiusM] = useState(2000);
   const [minKw, setMinKw] = useState(100);
   const [status, setStatus] = useState('');
@@ -120,6 +121,8 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults, onSelectR
     typedMutation.reset();
     chatMutation.reset();
     setLatestSource(null);
+    setMessage(DEFAULT_CHAT_MESSAGE);
+    setPlace(DEFAULT_PLACE);
     onClearResults();
   }
 
