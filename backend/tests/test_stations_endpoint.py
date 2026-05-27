@@ -49,6 +49,7 @@ def test_stations_endpoint_filters_bbox_and_limit(monkeypatch: pytest.MonkeyPatc
         "limit": 50,
         "source": "synthetic-stations-7k",
     }
+    assert "db;dur=" in response.headers["server-timing"]
 
     for feature in payload["features"]:
         lon, lat = feature["geometry"]["coordinates"]

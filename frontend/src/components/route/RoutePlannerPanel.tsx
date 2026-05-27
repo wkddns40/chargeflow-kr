@@ -22,7 +22,9 @@ import {
 } from '../../lib/routePlannerDisplay';
 
 type RoutePlannerPanelProps = {
+  onPreparePlan?: (route: RoutePlannerRoute) => void;
   onApplyPlan?: (result: RouteChargingPlanResponse, route: RoutePlannerRoute) => void;
+  onPlanError?: () => void;
   onSelectRecommendation?: (stationId: string) => void;
   onClearRecommendations?: () => void;
 };
@@ -32,7 +34,9 @@ const DEFAULT_ROUTE_FIXTURE = ROUTE_FIXTURES[0];
 const UNSUPPORTED_ROUTE_MESSAGE = '지원 fixture 없음';
 
 export function RoutePlannerPanel({
+  onPreparePlan,
   onApplyPlan,
+  onPlanError,
   onSelectRecommendation,
   onClearRecommendations,
 }: RoutePlannerPanelProps = {}) {
@@ -51,6 +55,7 @@ export function RoutePlannerPanel({
   const mutation = useMutation({
     mutationFn: (request: RouteChargingPlanRequest) => fetchChargingPlan(request),
     onSuccess: (data, request) => onApplyPlan?.(data, request.route),
+    onError: () => onPlanError?.(),
   });
 
   function buildRequest(selectedRoute: RoutePlannerFixture): RouteChargingPlanRequest {
@@ -87,7 +92,9 @@ export function RoutePlannerPanel({
     }
 
     setUnsupportedRouteMessage(null);
-    mutation.mutate(buildRequest(selectedRoute));
+    const request = buildRequest(selectedRoute);
+    onPreparePlan?.(request.route);
+    mutation.mutate(request);
   }
 
   function handleClear() {
