@@ -8,6 +8,7 @@ import psycopg
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.stations import MAX_LIMIT, STATION_SOURCE, load_db_station_features
+from app.core.config import get_settings
 from geocoding import UnknownPlaceError, lookup_place
 from nl_search_parser import (
     ClarificationRequired,
@@ -42,8 +43,14 @@ def search_chargers(payload: dict[str, Any]) -> dict:
 
 @router.post("/search/chargers/nl")
 def search_chargers_nl(payload: dict[str, Any]) -> dict:
+    settings = get_settings()
     try:
-        parsed = parse_natural_language_search(payload)
+        parsed = parse_natural_language_search(
+            payload,
+            openai_api_key=settings.openai_api_key,
+            openai_model=settings.openai_model,
+            openai_timeout_seconds=settings.openai_parse_timeout_seconds,
+        )
         if isinstance(parsed, ClarificationRequired):
             return parsed.to_dict()
 

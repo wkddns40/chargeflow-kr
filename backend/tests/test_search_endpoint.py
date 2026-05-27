@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api import search
 from app.main import create_app
 from station_query import contains_coordinate
+
+
+class TestSettings:
+    openai_api_key = ""
+    openai_model = "gpt-4o-mini"
+    openai_parse_timeout_seconds = 8.0
+
+
+@pytest.fixture(autouse=True)
+def disable_openai_parser(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(search, "get_settings", lambda: TestSettings())
 
 
 def client() -> TestClient:
