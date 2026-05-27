@@ -127,6 +127,13 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
       setViewState((currentViewState) => getBboxFitViewState(bbox, REFERENCE_VIEWPORT_SIZE, currentViewState));
     }
   }, []);
+  const handleResetMapHome = useCallback(() => {
+    setAssistantResults(null);
+    setRoutePlanResult(null);
+    setRoutePlanRoute(null);
+    setSelected(null);
+    setViewState(INITIAL_VIEW_STATE);
+  }, []);
   const handleSelectRouteRecommendation = useCallback(
     (stationId: string) => {
       const station = findRouteRecommendationStation(routeRecommendationStations, stationId);
@@ -260,11 +267,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
               <SearchAssistantPanel
                 onApplyResults={handleApplyAssistantResults}
                 onSelectResult={handleFocusStation}
-                onClearResults={() => {
-                  setAssistantResults(null);
-                  setSelected(null);
-                  setViewState(INITIAL_VIEW_STATE);
-                }}
+                onClearResults={handleResetMapHome}
               />
             )}
             {routePlannerEnabled && (
@@ -277,10 +280,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
                   );
                 }}
                 onSelectRecommendation={handleSelectRouteRecommendation}
-                onClearRecommendations={() => {
-                  setRoutePlanResult(null);
-                  setRoutePlanRoute(null);
-                }}
+                onClearRecommendations={handleResetMapHome}
               />
             )}
           </div>

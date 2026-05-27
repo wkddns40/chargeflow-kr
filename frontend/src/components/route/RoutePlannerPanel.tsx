@@ -113,6 +113,10 @@ export function RoutePlannerPanel({
             <input
               type="text"
               value={origin}
+              onFocus={() => {
+                setOrigin('');
+                setUnsupportedRouteMessage(null);
+              }}
               onChange={(event) => {
                 setOrigin(event.target.value);
                 setUnsupportedRouteMessage(null);
@@ -124,6 +128,10 @@ export function RoutePlannerPanel({
             <input
               type="text"
               value={destination}
+              onFocus={() => {
+                setDestination('');
+                setUnsupportedRouteMessage(null);
+              }}
               onChange={(event) => {
                 setDestination(event.target.value);
                 setUnsupportedRouteMessage(null);

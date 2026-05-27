@@ -44,7 +44,6 @@ const DEFAULT_CHAT_MESSAGE = 'Gangnam Station nearby 2km fast chargers';
 
 export function SearchAssistantPanel({ onApplyResults, onClearResults, onSelectResult }: SearchAssistantPanelProps) {
   const [message, setMessage] = useState(DEFAULT_CHAT_MESSAGE);
-  const [hasEditedMessage, setHasEditedMessage] = useState(false);
   const [place, setPlace] = useState('Gangnam Station');
   const [radiusM, setRadiusM] = useState(2000);
   const [minKw, setMinKw] = useState(100);
@@ -106,21 +105,8 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults, onSelectR
     chatMutation.mutate(message);
   }
 
-  function handleChatFocus() {
-    if (!hasEditedMessage && message === DEFAULT_CHAT_MESSAGE) {
-      setMessage('');
-      setHasEditedMessage(true);
-    }
-  }
-
-  function handleChatChange(nextMessage: string) {
-    setHasEditedMessage(true);
-    setMessage(nextMessage);
-  }
-
   function handleCandidateSelect(candidate: PlaceCandidate) {
     if (!clarification?.command) {
-      setHasEditedMessage(true);
       setMessage(candidate.name);
       return;
     }
@@ -151,8 +137,8 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults, onSelectR
           <span>Ask</span>
           <input
             value={message}
-            onFocus={handleChatFocus}
-            onChange={(event) => handleChatChange(event.target.value)}
+            onFocus={() => setMessage('')}
+            onChange={(event) => setMessage(event.target.value)}
           />
         </label>
         <button type="submit" disabled={chatMutation.isPending}>
@@ -165,7 +151,7 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults, onSelectR
         <form className="assistant-form" onSubmit={handleSubmit}>
           <label>
             <span>Place</span>
-            <input value={place} onChange={(event) => setPlace(event.target.value)} />
+            <input value={place} onFocus={() => setPlace('')} onChange={(event) => setPlace(event.target.value)} />
           </label>
 
           <div className="assistant-grid">
