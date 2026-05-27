@@ -53,9 +53,24 @@ def test_missing_place_returns_clarification() -> None:
     assert isinstance(result, ClarificationRequired)
     assert result.to_dict() == {
         "type": "clarification_required",
-        "message": "Search needs a place. Try: Gangnam Station nearby chargers.",
+        "message": "Search needs a place. Try: 홍대입구역 근처 급속 충전기.",
         "missing_fields": ["place"],
     }
+
+
+def test_extracts_korean_station_phrase_without_resolving() -> None:
+    command = parse("홍대입구역 근처 3km 100kW 이상 급속 충전기")
+
+    assert command["place"] == "홍대입구역"
+    assert command["radius_m"] == 3000
+    assert command["filters"] == {"min_kw": 100, "connector_type": "DC"}
+
+
+def test_extracts_korean_region_phrase_without_resolving() -> None:
+    command = parse("서울 전체 사용가능한 충전기")
+
+    assert command["place"] == "서울 전체"
+    assert command["filters"] == {"status": "available"}
 
 
 def test_unsupported_reservation_intent_rejects() -> None:
@@ -152,6 +167,54 @@ def test_openai_parser_can_return_clarification(monkeypatch: pytest.MonkeyPatch)
         "message": "Search needs a place.",
         "missing_fields": ["place"],
     }
+
+
+def test_openai_parser_preserves_area_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(*args: object, **kwargs: object) -> FakeOpenAIResponse:
+        return FakeOpenAIResponse(
+            {
+                "output_text": (
+                    '{"type":"search_command","message":"","missing_fields":[],'
+                    '"command":{"intent":"find_chargers","place":"서울","radius_m":2000,'
+                    '"filters":{"min_kw":null,"status":"available","connector_type":null},'
+                    '"sort":"availability"}}'
+                )
+            }
+        )
+
+    monkeypatch.setattr(nl_search_parser.httpx, "post", fake_post)
+
+    result = parse_natural_language_search(
+        {"message": "서울 전체 사용가능한 충전기"},
+        openai_api_key="sk-test",
+    )
+
+    assert isinstance(result, ParsedNaturalLanguageSearch)
+    assert result.command["place"] == "서울 전체"
+
+
+def test_openai_parser_strips_trailing_nearby_from_place(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(*args: object, **kwargs: object) -> FakeOpenAIResponse:
+        return FakeOpenAIResponse(
+            {
+                "output_text": (
+                    '{"type":"search_command","message":"","missing_fields":[],'
+                    '"command":{"intent":"find_chargers","place":"홍대입구역 근처","radius_m":2000,'
+                    '"filters":{"min_kw":null,"status":null,"connector_type":"DC"},'
+                    '"sort":"distance"}}'
+                )
+            }
+        )
+
+    monkeypatch.setattr(nl_search_parser.httpx, "post", fake_post)
+
+    result = parse_natural_language_search(
+        {"message": "홍대입구역 근처 급속 충전기"},
+        openai_api_key="sk-test",
+    )
+
+    assert isinstance(result, ParsedNaturalLanguageSearch)
+    assert result.command["place"] == "홍대입구역"
 
 
 def test_openai_parser_falls_back_to_deterministic_parser(monkeypatch: pytest.MonkeyPatch) -> None:

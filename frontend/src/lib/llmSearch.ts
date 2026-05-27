@@ -33,14 +33,33 @@ export type NaturalLanguageChargerSearchResponse = ChargerSearchResponse & {
   input: {
     message: string;
     parser: string;
+    place_phrase: string;
     command: ChargerSearchCommand;
   };
+};
+
+export type PlaceCandidate = {
+  place_id: string;
+  name: string;
+  place_type: 'station' | 'province' | 'district' | 'subdistrict';
+  lon: number;
+  lat: number;
+  bbox?: {
+    west: number;
+    south: number;
+    east: number;
+    north: number;
+  };
+  region_code?: string;
+  matched_alias?: string;
 };
 
 export type ChargerSearchClarificationResponse = {
   type: 'clarification_required';
   message: string;
   missing_fields: string[];
+  candidates?: PlaceCandidate[];
+  command?: ChargerSearchCommand;
 };
 
 export type NaturalLanguageSearchResponse =
