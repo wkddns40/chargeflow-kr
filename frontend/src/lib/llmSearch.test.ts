@@ -94,7 +94,12 @@ describe('fetchNaturalLanguageChargerSearch', () => {
       ok: true,
       json: async () => ({
         type: 'search_results',
-        input: { message: 'Gangnam Station nearby fast chargers', parser: 'deterministic-v1', command: COMMAND },
+        input: {
+          message: 'Gangnam Station nearby fast chargers',
+          parser: 'deterministic-v1',
+          place_phrase: 'Gangnam Station',
+          command: COMMAND,
+        },
         query: {},
         features: [],
         explanation: { applied_filters: [], data_freshness: 'synthetic-snapshot' },

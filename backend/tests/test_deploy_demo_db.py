@@ -39,8 +39,14 @@ def test_main_applies_schema_and_seeds(monkeypatch: pytest.MonkeyPatch, tmp_path
             raw_file_hash="sha256:test",
         )
 
+    def fake_seed_places(database_url: str, places: object) -> SimpleNamespace:
+        calls.append(("place-seed", database_url, places))
+        return SimpleNamespace(place_count=1, alias_count=2, station_count=1, region_count=0)
+
     monkeypatch.setattr(deploy_demo_db, "apply_schema", fake_apply_schema)
     monkeypatch.setattr(deploy_demo_db, "seed_fixture", fake_seed_fixture)
+    monkeypatch.setattr(deploy_demo_db, "build_places_from_sources", lambda: ["place"])
+    monkeypatch.setattr(deploy_demo_db, "seed_places", fake_seed_places)
 
     deploy_demo_db.main(
         [
@@ -58,6 +64,7 @@ def test_main_applies_schema_and_seeds(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert calls == [
         ("schema", "postgresql://example", schema.resolve()),
         ("seed", fixture.resolve(), "postgresql://example", "synthetic-test"),
+        ("place-seed", "postgresql://example", ["place"]),
     ]
 
 
