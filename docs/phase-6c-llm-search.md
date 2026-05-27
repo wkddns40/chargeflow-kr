@@ -2,7 +2,19 @@
 
 Phase 6C adds a typed natural-language search path for Korean EV charger queries. The LLM does not query the database directly and does not answer from memory. It converts user text into a typed command that the backend validates before using local datasets.
 
-This phase is design-only for task 3.1. It does not add an LLM provider, API key, SQL execution layer, or frontend assistant panel.
+The original task 3.1 phase was design-only. The current implementation keeps the same no-cost boundary: no external LLM provider, no API key, and no SQL generated from user text.
+
+## Implementation Status
+
+As of 2026-05-27:
+
+- `POST /api/search/chargers/nl` accepts `{ "message": "..." }` free-text search input.
+- The backend uses a deterministic parser, then passes the parsed command through `validate_search_command()`.
+- Search execution reuses the existing local geocoder, PostGIS-backed station query, radius filter, status/power/connector filters, and sort path.
+- Missing place input returns `type="clarification_required"` without applying map results.
+- Unsupported intents and SQL-like control text return stable 400 errors.
+- The frontend assistant is chat-first and keeps structured search controls as a fallback.
+- No external LLM provider call is made.
 
 ## Scope
 

@@ -2,6 +2,8 @@ import { FormEvent, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import {
   fetchChargerSearch,
+  fetchNaturalLanguageChargerSearch,
+  isNaturalLanguageSearchResult,
   type ChargerSearchCommand,
   type ChargerSearchResponse,
 } from '../../lib/llmSearch';
@@ -36,19 +38,42 @@ const SORT_OPTIONS = [
 ] as const;
 
 export function SearchAssistantPanel({ onApplyResults, onClearResults }: SearchAssistantPanelProps) {
+  const [message, setMessage] = useState('Gangnam Station nearby 2km fast chargers');
   const [place, setPlace] = useState('Gangnam Station');
   const [radiusM, setRadiusM] = useState(2000);
   const [minKw, setMinKw] = useState(100);
   const [status, setStatus] = useState('');
   const [connectorType, setConnectorType] = useState('DC');
   const [sort, setSort] = useState<ChargerSearchCommand['sort']>('distance');
+  const [latestSource, setLatestSource] = useState<'chat' | 'typed' | null>(null);
 
-  const mutation = useMutation({
+  const typedMutation = useMutation({
     mutationFn: (command: ChargerSearchCommand) => fetchChargerSearch(command),
-    onSuccess: (data) => onApplyResults(data.features),
+    onSuccess: (data) => {
+      setLatestSource('typed');
+      onApplyResults(data.features);
+    },
   });
 
-  const latest = mutation.data;
+  const chatMutation = useMutation({
+    mutationFn: (nextMessage: string) => fetchNaturalLanguageChargerSearch(nextMessage),
+    onSuccess: (data) => {
+      setLatestSource('chat');
+      if (isNaturalLanguageSearchResult(data)) {
+        onApplyResults(data.features);
+      }
+    },
+  });
+
+  const latest =
+    latestSource === 'chat' && isNaturalLanguageSearchResult(chatMutation.data)
+      ? chatMutation.data
+      : latestSource === 'typed'
+        ? typedMutation.data
+        : undefined;
+  const clarification =
+    latestSource === 'chat' && chatMutation.data?.type === 'clarification_required' ? chatMutation.data : undefined;
+  const hasError = (latestSource === 'chat' && chatMutation.isError) || (latestSource === 'typed' && typedMutation.isError);
   const hasResults = Boolean(latest?.features.length);
 
   function buildCommand(): ChargerSearchCommand {
@@ -67,11 +92,18 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults }: SearchA
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    mutation.mutate(buildCommand());
+    typedMutation.mutate(buildCommand());
+  }
+
+  function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    chatMutation.mutate(message);
   }
 
   function handleClear() {
-    mutation.reset();
+    typedMutation.reset();
+    chatMutation.reset();
+    setLatestSource(null);
     onClearResults();
   }
 
@@ -84,77 +116,91 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults }: SearchA
         </button>
       </div>
 
-      <form className="assistant-form" onSubmit={handleSubmit}>
+      <form className="assistant-chat-form" onSubmit={handleChatSubmit}>
         <label>
-          <span>Place</span>
-          <input value={place} onChange={(event) => setPlace(event.target.value)} />
+          <span>Ask</span>
+          <input value={message} onChange={(event) => setMessage(event.target.value)} />
         </label>
-
-        <div className="assistant-grid">
-          <label>
-            <span>Radius m</span>
-            <input
-              min="1"
-              max="50000"
-              step="100"
-              type="number"
-              value={radiusM}
-              onChange={(event) => setRadiusM(Number(event.target.value))}
-            />
-          </label>
-          <label>
-            <span>Min kW</span>
-            <input
-              min="0"
-              max="1000"
-              step="10"
-              type="number"
-              value={minKw}
-              onChange={(event) => setMinKw(Number(event.target.value))}
-            />
-          </label>
-        </div>
-
-        <div className="assistant-grid">
-          <label>
-            <span>Status</span>
-            <select value={status} onChange={(event) => setStatus(event.target.value)}>
-              {STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Connector</span>
-            <select value={connectorType} onChange={(event) => setConnectorType(event.target.value)}>
-              {CONNECTOR_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <label>
-          <span>Sort</span>
-          <select value={sort} onChange={(event) => setSort(event.target.value as ChargerSearchCommand['sort'])}>
-            {SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <button type="submit" disabled={mutation.isPending}>
-          {mutation.isPending ? 'Searching...' : 'Search'}
+        <button type="submit" disabled={chatMutation.isPending}>
+          {chatMutation.isPending ? 'Searching...' : 'Send'}
         </button>
       </form>
 
-      {mutation.isError && <p className="assistant-message">Search failed. Check place or filters.</p>}
+      <details className="assistant-advanced">
+        <summary>Structured search</summary>
+        <form className="assistant-form" onSubmit={handleSubmit}>
+          <label>
+            <span>Place</span>
+            <input value={place} onChange={(event) => setPlace(event.target.value)} />
+          </label>
+
+          <div className="assistant-grid">
+            <label>
+              <span>Radius m</span>
+              <input
+                min="1"
+                max="50000"
+                step="100"
+                type="number"
+                value={radiusM}
+                onChange={(event) => setRadiusM(Number(event.target.value))}
+              />
+            </label>
+            <label>
+              <span>Min kW</span>
+              <input
+                min="0"
+                max="1000"
+                step="10"
+                type="number"
+                value={minKw}
+                onChange={(event) => setMinKw(Number(event.target.value))}
+              />
+            </label>
+          </div>
+
+          <div className="assistant-grid">
+            <label>
+              <span>Status</span>
+              <select value={status} onChange={(event) => setStatus(event.target.value)}>
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Connector</span>
+              <select value={connectorType} onChange={(event) => setConnectorType(event.target.value)}>
+                {CONNECTOR_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label>
+            <span>Sort</span>
+            <select value={sort} onChange={(event) => setSort(event.target.value as ChargerSearchCommand['sort'])}>
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button type="submit" disabled={typedMutation.isPending}>
+            {typedMutation.isPending ? 'Searching...' : 'Search'}
+          </button>
+        </form>
+      </details>
+
+      {hasError && <p className="assistant-message">Search failed. Check place or filters.</p>}
+      {clarification && <p className="assistant-message">{clarification.message}</p>}
       {latest && !hasResults && <p className="assistant-message">No local matches.</p>}
       {latest && hasResults && <SearchResultList result={latest} />}
     </aside>

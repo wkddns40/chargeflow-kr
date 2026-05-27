@@ -9,6 +9,12 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.stations import MAX_LIMIT, STATION_SOURCE, load_db_station_features
 from geocoding import UnknownPlaceError, lookup_place
+from nl_search_parser import (
+    ClarificationRequired,
+    NaturalLanguageSearchError,
+    ParsedNaturalLanguageSearch,
+    parse_natural_language_search,
+)
 from search_schema import SearchCommand, SearchCommandError, validate_search_command
 from station_query import BBox, Feature, contains_coordinate, extract_coordinates
 
@@ -24,19 +30,54 @@ SEARCH_PREFILTER_LIMIT = MAX_LIMIT
 def search_chargers(payload: dict[str, Any]) -> dict:
     try:
         command = validate_search_command(payload)
-        place = lookup_place(command.place)
-        bbox = bbox_for_radius(place.lon, place.lat, command.radius_m)
-    except (SearchCommandError, UnknownPlaceError, ValueError) as exc:
+        return execute_search(command)
+    except (SearchCommandError, UnknownPlaceError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    try:
-        features = load_db_station_features(bbox, SEARCH_PREFILTER_LIMIT)
-        matched = search_station_features(features, place.lon, place.lat, command, bbox)
     except (psycopg.Error, ValueError, RuntimeError) as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="station database query failed",
         ) from exc
+
+
+@router.post("/search/chargers/nl")
+def search_chargers_nl(payload: dict[str, Any]) -> dict:
+    try:
+        parsed = parse_natural_language_search(payload)
+        if isinstance(parsed, ClarificationRequired):
+            return parsed.to_dict()
+
+        command = validate_search_command(parsed.command)
+        response = execute_search(command)
+    except (NaturalLanguageSearchError, SearchCommandError, UnknownPlaceError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except (psycopg.Error, ValueError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="station database query failed",
+        ) from exc
+
+    return {
+        "type": "search_results",
+        "input": natural_language_input_metadata(parsed, command),
+        **response,
+    }
+
+
+def natural_language_input_metadata(parsed: ParsedNaturalLanguageSearch, command: SearchCommand) -> dict:
+    return {
+        "message": parsed.message,
+        "parser": parsed.parser,
+        "command": command.to_dict(),
+    }
+
+
+def execute_search(command: SearchCommand) -> dict:
+    place = lookup_place(command.place)
+    bbox = bbox_for_radius(place.lon, place.lat, command.radius_m)
+
+    features = load_db_station_features(bbox, SEARCH_PREFILTER_LIMIT)
+    matched = search_station_features(features, place.lon, place.lat, command, bbox)
 
     return {
         "query": {

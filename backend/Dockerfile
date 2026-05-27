@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY fixtures ./fixtures
 COPY scripts ./scripts
-COPY availability_rollup.py geocoding.py route_corridor.py route_planner_graph.py search_schema.py station_query.py stop_optimizer.py vehicle_profile.py ./
+COPY availability_rollup.py geocoding.py nl_search_parser.py route_corridor.py route_planner_graph.py search_schema.py station_query.py stop_optimizer.py vehicle_profile.py ./
 
 EXPOSE 8000
 

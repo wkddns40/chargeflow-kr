@@ -28,6 +28,25 @@ export type ChargerSearchResponse = {
   };
 };
 
+export type NaturalLanguageChargerSearchResponse = ChargerSearchResponse & {
+  type: 'search_results';
+  input: {
+    message: string;
+    parser: string;
+    command: ChargerSearchCommand;
+  };
+};
+
+export type ChargerSearchClarificationResponse = {
+  type: 'clarification_required';
+  message: string;
+  missing_fields: string[];
+};
+
+export type NaturalLanguageSearchResponse =
+  | NaturalLanguageChargerSearchResponse
+  | ChargerSearchClarificationResponse;
+
 export function isLlmSearchFlagEnabled(flagValue: string | undefined): boolean {
   return flagValue === 'true';
 }
@@ -35,6 +54,11 @@ export function isLlmSearchFlagEnabled(flagValue: string | undefined): boolean {
 export function buildChargerSearchUrl(apiBaseUrl = API_BASE_URL): string {
   const baseUrl = apiBaseUrl.replace(/\/$/, '');
   return `${baseUrl}/api/search/chargers`;
+}
+
+export function buildNaturalLanguageChargerSearchUrl(apiBaseUrl = API_BASE_URL): string {
+  const baseUrl = apiBaseUrl.replace(/\/$/, '');
+  return `${baseUrl}/api/search/chargers/nl`;
 }
 
 export async function fetchChargerSearch(
@@ -52,6 +76,29 @@ export async function fetchChargerSearch(
   }
 
   return response.json() as Promise<ChargerSearchResponse>;
+}
+
+export async function fetchNaturalLanguageChargerSearch(
+  message: string,
+  apiBaseUrl = API_BASE_URL,
+): Promise<NaturalLanguageSearchResponse> {
+  const response = await fetch(buildNaturalLanguageChargerSearchUrl(apiBaseUrl), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Natural-language charger search failed: ${String(response.status)}`);
+  }
+
+  return response.json() as Promise<NaturalLanguageSearchResponse>;
+}
+
+export function isNaturalLanguageSearchResult(
+  response: NaturalLanguageSearchResponse | undefined,
+): response is NaturalLanguageChargerSearchResponse {
+  return response?.type === 'search_results';
 }
 
 export const llmSearchEnabled = isLlmSearchFlagEnabled(LLM_SEARCH_FLAG);
