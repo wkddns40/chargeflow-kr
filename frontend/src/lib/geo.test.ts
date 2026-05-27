@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bboxFromViewState, getStationFocusViewState, toBboxParam } from './geo';
+import { bboxFromViewState, getStationFocusViewState, getStationScreenPosition, toBboxParam } from './geo';
 import type { ChargerFeature, ViewState } from '../types/charger';
 
 const SEOUL_VIEW: ViewState = {
@@ -57,5 +57,14 @@ describe('getStationFocusViewState', () => {
     expect(viewState.zoom).toBeGreaterThan(SEOUL_VIEW.zoom);
     expect(viewState.pitch).toBe(0);
     expect(viewState.bearing).toBe(0);
+  });
+});
+
+describe('getStationScreenPosition', () => {
+  it('projects the selected station to the viewport center after focusing', () => {
+    const viewState = getStationFocusViewState(STATION, SEOUL_VIEW);
+    const position = getStationScreenPosition(STATION, viewState, { width: 2048, height: 1024 });
+
+    expect(position).toEqual({ x: 1024, y: 512 });
   });
 });

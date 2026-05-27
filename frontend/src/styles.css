@@ -66,8 +66,20 @@ body {
 }
 
 .detail-panel {
-  right: 16px;
-  bottom: 16px;
+  transform: translate(-50%, calc(-100% - 30px));
+}
+
+.detail-panel::after {
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  border-right: 1px solid rgba(15, 23, 42, 0.12);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.94);
+  content: "";
+  transform: translateX(-50%) rotate(45deg);
 }
 
 .assistant-panel,
