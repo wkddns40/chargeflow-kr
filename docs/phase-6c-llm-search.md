@@ -2,19 +2,20 @@
 
 Phase 6C adds a typed natural-language search path for Korean EV charger queries. The LLM does not query the database directly and does not answer from memory. It converts user text into a typed command that the backend validates before using local datasets.
 
-The original task 3.1 phase was design-only. The current implementation keeps the same no-cost boundary: no external LLM provider, no API key, and no SQL generated from user text.
+The original task 3.1 phase was design-only. The current implementation keeps the same SQL boundary: no SQL is generated from user text, and every parsed command still passes through backend validation.
 
 ## Implementation Status
 
 As of 2026-05-27:
 
 - `POST /api/search/chargers/nl` accepts `{ "message": "..." }` free-text search input.
-- The backend uses a deterministic parser, then passes the parsed command through `validate_search_command()`.
+- The backend uses OpenAI Responses API structured output when a server-side OpenAI key is configured.
+- If the provider is unavailable, the backend falls back to the deterministic parser.
+- Every parsed command passes through `validate_search_command()`.
 - Search execution reuses the existing local geocoder, PostGIS-backed station query, radius filter, status/power/connector filters, and sort path.
 - Missing place input returns `type="clarification_required"` without applying map results.
 - Unsupported intents and SQL-like control text return stable 400 errors.
 - The frontend assistant is chat-first and keeps structured search controls as a fallback.
-- No external LLM provider call is made.
 
 ## Scope
 
@@ -40,7 +41,7 @@ Deferred:
 
 The first frontend shell is feature-flagged with `VITE_ENABLE_LLM_SEARCH=false` by default.
 
-When enabled, the panel submits a typed charger search command to the local backend endpoint. It does not call a real LLM provider, does not send prompts to an external service, and does not infer facts outside the backend response.
+When enabled, the panel submits free-text search to the local backend endpoint. The frontend does not call a model provider and does not hold provider credentials. Backend responses remain the only source for displayed charger facts.
 
 ## Responsibilities
 
@@ -187,11 +188,10 @@ LLM-owned steps after tool result:
 
 ## LLM Search Cost Protection
 
-As of 5.2.4, the LLM search path has a no-cost baseline: the enabled frontend shell posts a typed search command to the local backend only. It does not send prompts to an external provider, does not hold a provider API key, and does not perform provider-backed summarization.
+As of 2026-05-27, the LLM search path has a server-side OpenAI parser for free-text-to-command extraction. The enabled frontend shell posts user text to the local backend only. It does not hold a provider key, model name, or provider client.
 
-If a future task adds an LLM provider for natural-language-to-command parsing, cost protection must gate the provider boundary before any paid request is made:
+Provider cost protection gates the prompt parsing boundary:
 
-- Keep `VITE_ENABLE_LLM_SEARCH=false` by default in production until backend-side quotas exist.
 - Keep provider credentials server-side only; no provider key or model name belongs in frontend code.
 - Allow at most one provider call per explicit user submit. No keystroke, autocomplete, map pan, retry loop, or background refresh may call the provider.
 - Enforce prompt length and request body size limits before provider dispatch.
@@ -202,7 +202,7 @@ If a future task adds an LLM provider for natural-language-to-command parsing, c
 - Cache only normalized typed commands or privacy-safe hashes unless raw prompt retention is explicitly approved.
 - Log metering fields such as endpoint, model, token estimate, cost estimate, outcome, and rate-limit bucket; do not log raw prompt text by default.
 
-The local `/api/search/chargers` endpoint remains the authoritative charger-data path. Rate limiting may protect it for availability, but provider cost controls must focus on the future prompt parsing boundary, not on local station filtering.
+The local `/api/search/chargers` endpoint remains the authoritative charger-data path. Rate limiting may protect it for availability, but provider cost controls must focus on the prompt parsing boundary, not on local station filtering.
 
 ## Throttled Request Response
 
@@ -246,7 +246,7 @@ Implementation intentionally not added in 5.2:
 - No FastAPI middleware or dependency for rate limiting.
 - No in-memory, Redis, database, or file-backed token bucket.
 - No auth session, user identity model, API key model, or account quota table.
-- No external LLM provider client, provider API key, model selection, or prompt dispatch.
+- No runtime rate-limit storage, quota counters, spend cap, or circuit breaker.
 - No frontend retry loop, polling loop, debounce-triggered provider call, or provider-cost UI.
 - No changes to the local `/api/search/chargers` command schema or station filtering behavior.
 
@@ -463,7 +463,7 @@ Expected behavior:
 
 ### Deterministic Parser Baseline
 
-The first implementation should not call an external LLM provider. It should use deterministic parsing with explicit aliases and regular expressions. This keeps the no-cost baseline intact and makes failures testable.
+The first implementation used deterministic parsing with explicit aliases and regular expressions. The current implementation uses server-side OpenAI structured output first, then falls back to deterministic parsing when the provider is unavailable.
 
 Parser responsibilities:
 
@@ -503,9 +503,9 @@ Rules:
 - Unsupported intents such as reservation, price comparison, or wait-time prediction should return a typed unsupported-intent error.
 - Suspicious control text must be rejected before command validation.
 
-### Optional LLM Provider Phase
+### LLM Provider Phase
 
-An external provider should be a later, separate task. If added, it must stay behind the backend boundary and preserve the same typed command contract.
+The external provider stays behind the backend boundary and preserves the same typed command contract.
 
 Provider rules:
 
@@ -544,7 +544,7 @@ Frontend tests:
 Completion criteria:
 
 - A user can type a free-text charger query into the assistant panel.
-- The backend converts it into a typed command without external provider cost.
+- The backend converts it into a typed command with server-side OpenAI structured output or deterministic fallback.
 - Existing validation, local geocoder, and PostGIS-backed search are reused.
 - Live demo handles a Gangnam Station free-text search and keeps backend limitations visible.
 
@@ -555,9 +555,9 @@ Commands:
 ```powershell
 Test-Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "intent|tool boundary|validation|SQL|hallucination|local dataset"
-Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "LLM Search Cost Protection|no-cost baseline|provider call|VITE_ENABLE_LLM_SEARCH=false|daily spend cap|server-side"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "LLM Search Cost Protection|provider call|daily spend cap|server-side"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "Throttled Request Response|429 Too Many Requests|Retry-After|rate_limited|provider_cost|global_circuit_breaker"
-Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "Rate Limit Scope Audit|design-only|No FastAPI middleware|No external LLM provider client|No changes to the local"
+Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "Rate Limit Scope Audit|design-only|No FastAPI middleware|No runtime rate-limit storage|No changes to the local"
 Select-String -Path D:\fleet\chargeflow-kr\docs\phase-6c-llm-search.md -Pattern "강남역|제주공항|부산역"
 ```
 
@@ -570,6 +570,6 @@ Pass conditions:
 - Document includes Korean query examples.
 - Document includes hallucination prevention rules.
 - Document notes local dataset limitations and keeps external APIs deferred.
-- Document defines LLM search cost protection before any future paid provider call.
+- Document defines LLM search cost protection for paid provider calls.
 - Document defines the throttled request response contract for HTTP 429 responses.
-- Document confirms 5.2 remains design-only and does not add runtime throttling or provider calls.
+- Document confirms 5.2 remains design-only for runtime throttling and does not add quota storage.
