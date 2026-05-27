@@ -16,6 +16,11 @@ export type ViewportSize = {
   height: number;
 };
 
+export type ScreenPosition = {
+  x: number;
+  y: number;
+};
+
 export function getValidData(features: ChargerFeature[]): ChargerFeature[] {
   return features.filter((feature) => {
     const [lng, lat] = feature.geometry.coordinates;
@@ -43,6 +48,26 @@ export function getStationFocusViewState(feature: ChargerFeature, currentViewSta
     zoom: Math.max(currentViewState.zoom, STATION_FOCUS_ZOOM),
     pitch: 0,
     bearing: 0,
+  };
+}
+
+export function getStationScreenPosition(
+  feature: ChargerFeature,
+  viewState: ViewState,
+  viewport: ViewportSize,
+): ScreenPosition | null {
+  const [longitude, latitude] = feature.geometry.coordinates;
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+    return null;
+  }
+
+  const zoom = clamp(viewState.zoom, 0, 24);
+  const [centerX, centerY] = lngLatToWorld(viewState.longitude, viewState.latitude, zoom);
+  const [pointX, pointY] = lngLatToWorld(longitude, latitude, zoom);
+
+  return {
+    x: viewport.width / 2 + pointX - centerX,
+    y: viewport.height / 2 + pointY - centerY,
   };
 }
 

@@ -5,7 +5,7 @@ import { PathLayer, ScatterplotLayer } from '@deck.gl/layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { ChargerFeature, ViewState } from '../../types/charger';
 import { INITIAL_VIEW_STATE, MAP_STYLE_URL, REFERENCE_VIEWPORT_SIZE } from '../../constants/viewport';
-import { getStationFocusViewState, getValidData } from '../../lib/geo';
+import { getStationFocusViewState, getStationScreenPosition, getValidData } from '../../lib/geo';
 import type { RouteChargingPlanResponse, RoutePlannerRoute } from '../../lib/routePlanner';
 import {
   findRouteRecommendationStation,
@@ -37,6 +37,8 @@ const STATUS_COLORS: Record<ChargerFeature['properties']['status'], [number, num
   offline: [202, 73, 65, 220],
   unknown: [112, 122, 138, 200],
 };
+const SELECTED_MARKER_MIN_RADIUS = 28;
+const SELECTED_MARKER_MAX_RADIUS = 40;
 
 function getStageTransform(): StageTransform {
   if (typeof window === 'undefined') {
@@ -52,6 +54,23 @@ function getStageTransform(): StageTransform {
     x: (window.innerWidth - REFERENCE_VIEWPORT_SIZE.width * scale) / 2,
     y: (window.innerHeight - REFERENCE_VIEWPORT_SIZE.height * scale) / 2,
   };
+}
+
+function getBaseStationRadius(station: ChargerFeature): number {
+  return Math.max(5, Math.min(13, station.properties.max_kw / 18));
+}
+
+function isSelectedStation(station: ChargerFeature, selectedStationId: string | null): boolean {
+  return selectedStationId !== null && station.properties.charger_id === selectedStationId;
+}
+
+function getStationMarkerRadius(station: ChargerFeature, selectedStationId: string | null, zoom: number): number {
+  if (!isSelectedStation(station, selectedStationId)) {
+    return getBaseStationRadius(station);
+  }
+
+  const zoomRadius = 16 + Math.max(0, zoom - INITIAL_VIEW_STATE.zoom) * 4;
+  return Math.min(SELECTED_MARKER_MAX_RADIUS, Math.max(SELECTED_MARKER_MIN_RADIUS, zoomRadius));
 }
 
 export function MapShell({ stations, assistantSearchEnabled = false, routePlannerEnabled = false }: MapShellProps) {
@@ -83,6 +102,17 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
   const routePathData = useMemo(() => getRoutePathLayerData(routePlanRoute), [routePlanRoute]);
   const dataMode = viewportStations.enabled ? 'Viewport API' : import.meta.env.VITE_DEMO_MODE === 'false' ? 'API' : 'Static demo';
   const rightPanelsEnabled = assistantSearchEnabled || routePlannerEnabled;
+  const selectedStationId = selected?.properties.charger_id ?? null;
+  const selectedDetailPosition = useMemo(
+    () =>
+      selected
+        ? getStationScreenPosition(selected, viewState, REFERENCE_VIEWPORT_SIZE) ?? {
+            x: REFERENCE_VIEWPORT_SIZE.width / 2,
+            y: REFERENCE_VIEWPORT_SIZE.height / 2,
+          }
+        : null,
+    [selected, viewState],
+  );
   const handleFocusStation = useCallback((station: ChargerFeature) => {
     setAssistantResults([station]);
     setSelected(station);
@@ -115,16 +145,20 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
         data: validStations,
         pickable: true,
         radiusUnits: 'pixels',
-        getRadius: (station: ChargerFeature) => Math.max(5, Math.min(13, station.properties.max_kw / 18)),
+        stroked: true,
+        lineWidthUnits: 'pixels',
+        getLineWidth: (station: ChargerFeature) => (isSelectedStation(station, selectedStationId) ? 5 : 0),
+        getRadius: (station: ChargerFeature) => getStationMarkerRadius(station, selectedStationId, viewState.zoom),
         getPosition: (station: ChargerFeature) => station.geometry.coordinates,
         getFillColor: (station: ChargerFeature) => STATUS_COLORS[station.properties.status],
+        getLineColor: () => [255, 255, 255, 245],
         onClick: ({ object }: { object?: ChargerFeature | null }) => {
           if (object) {
             handleFocusStation(object);
           }
         },
       }),
-    [handleFocusStation, validStations],
+    [handleFocusStation, selectedStationId, validStations, viewState.zoom],
   );
   const routePathLayer = useMemo(
     () =>
@@ -245,8 +279,14 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
           </div>
         )}
 
-        {selected && (
-          <aside className="detail-panel">
+        {selected && selectedDetailPosition && (
+          <aside
+            className="detail-panel"
+            style={{
+              left: selectedDetailPosition.x,
+              top: selectedDetailPosition.y,
+            }}
+          >
             <button type="button" aria-label="Close station details" onClick={() => setSelected(null)}>
               x
             </button>
