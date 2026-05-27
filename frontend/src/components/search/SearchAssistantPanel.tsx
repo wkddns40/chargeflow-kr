@@ -39,8 +39,11 @@ const SORT_OPTIONS = [
   { label: 'Availability', value: 'availability' },
 ] as const;
 
+const DEFAULT_CHAT_MESSAGE = 'Gangnam Station nearby 2km fast chargers';
+
 export function SearchAssistantPanel({ onApplyResults, onClearResults }: SearchAssistantPanelProps) {
-  const [message, setMessage] = useState('Gangnam Station nearby 2km fast chargers');
+  const [message, setMessage] = useState(DEFAULT_CHAT_MESSAGE);
+  const [hasEditedMessage, setHasEditedMessage] = useState(false);
   const [place, setPlace] = useState('Gangnam Station');
   const [radiusM, setRadiusM] = useState(2000);
   const [minKw, setMinKw] = useState(100);
@@ -102,8 +105,21 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults }: SearchA
     chatMutation.mutate(message);
   }
 
+  function handleChatFocus() {
+    if (!hasEditedMessage && message === DEFAULT_CHAT_MESSAGE) {
+      setMessage('');
+      setHasEditedMessage(true);
+    }
+  }
+
+  function handleChatChange(nextMessage: string) {
+    setHasEditedMessage(true);
+    setMessage(nextMessage);
+  }
+
   function handleCandidateSelect(candidate: PlaceCandidate) {
     if (!clarification?.command) {
+      setHasEditedMessage(true);
       setMessage(candidate.name);
       return;
     }
@@ -132,7 +148,11 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults }: SearchA
       <form className="assistant-chat-form" onSubmit={handleChatSubmit}>
         <label>
           <span>Ask</span>
-          <input value={message} onChange={(event) => setMessage(event.target.value)} />
+          <input
+            value={message}
+            onFocus={handleChatFocus}
+            onChange={(event) => handleChatChange(event.target.value)}
+          />
         </label>
         <button type="submit" disabled={chatMutation.isPending}>
           {chatMutation.isPending ? 'Searching...' : 'Send'}
