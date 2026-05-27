@@ -14,6 +14,7 @@ import type { ChargerFeature } from '../../types/charger';
 type SearchAssistantPanelProps = {
   onApplyResults: (features: ChargerFeature[]) => void;
   onClearResults: () => void;
+  onSelectResult: (feature: ChargerFeature) => void;
 };
 
 const STATUS_OPTIONS = [
@@ -41,7 +42,7 @@ const SORT_OPTIONS = [
 
 const DEFAULT_CHAT_MESSAGE = 'Gangnam Station nearby 2km fast chargers';
 
-export function SearchAssistantPanel({ onApplyResults, onClearResults }: SearchAssistantPanelProps) {
+export function SearchAssistantPanel({ onApplyResults, onClearResults, onSelectResult }: SearchAssistantPanelProps) {
   const [message, setMessage] = useState(DEFAULT_CHAT_MESSAGE);
   const [hasEditedMessage, setHasEditedMessage] = useState(false);
   const [place, setPlace] = useState('Gangnam Station');
@@ -235,7 +236,7 @@ export function SearchAssistantPanel({ onApplyResults, onClearResults }: SearchA
       {hasError && <p className="assistant-message">Search failed. Check place or filters.</p>}
       {clarification && <ClarificationPanel clarification={clarification} onSelectCandidate={handleCandidateSelect} />}
       {latest && !hasResults && <p className="assistant-message">No local matches.</p>}
-      {latest && hasResults && <SearchResultList result={latest} />}
+      {latest && hasResults && <SearchResultList result={latest} onSelectResult={onSelectResult} />}
     </aside>
   );
 }
@@ -269,7 +270,13 @@ function ClarificationPanel({
   );
 }
 
-function SearchResultList({ result }: { result: ChargerSearchResponse }) {
+function SearchResultList({
+  result,
+  onSelectResult,
+}: {
+  result: ChargerSearchResponse;
+  onSelectResult: (feature: ChargerFeature) => void;
+}) {
   return (
     <div className="assistant-results">
       <div className="assistant-result-meta">
@@ -282,11 +289,18 @@ function SearchResultList({ result }: { result: ChargerSearchResponse }) {
 
           return (
             <li key={feature.properties.charger_id}>
-              <strong>{feature.properties.charger_name}</strong>
-              <span>
-                {distanceLabel ? `${distanceLabel} / ` : ''}
-                {feature.properties.max_kw} kW / {feature.properties.status}
-              </span>
+              <button
+                type="button"
+                className="assistant-result-button"
+                onClick={() => onSelectResult(feature)}
+                aria-label={`Focus ${feature.properties.charger_name}`}
+              >
+                <strong>{feature.properties.charger_name}</strong>
+                <span>
+                  {distanceLabel ? `${distanceLabel} / ` : ''}
+                  {feature.properties.max_kw} kW / {feature.properties.status}
+                </span>
+              </button>
             </li>
           );
         })}

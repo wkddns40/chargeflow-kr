@@ -2,6 +2,7 @@ import type { ChargerFeature, ViewState } from '../types/charger';
 
 const WEB_MERCATOR_TILE_SIZE = 512;
 const WEB_MERCATOR_LAT_LIMIT = 85.051129;
+const STATION_FOCUS_ZOOM = 16.5;
 
 export type BboxBounds = {
   west: number;
@@ -27,6 +28,22 @@ export function getLatestDataPoint(features: ChargerFeature[]): ChargerFeature |
   return features.reduce((prev, curr) =>
     prev.properties.status_updated_at > curr.properties.status_updated_at ? prev : curr,
   );
+}
+
+export function getStationFocusViewState(feature: ChargerFeature, currentViewState: ViewState): ViewState {
+  const [longitude, latitude] = feature.geometry.coordinates;
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+    return currentViewState;
+  }
+
+  return {
+    ...currentViewState,
+    longitude,
+    latitude,
+    zoom: Math.max(currentViewState.zoom, STATION_FOCUS_ZOOM),
+    pitch: 0,
+    bearing: 0,
+  };
 }
 
 export function buildPaths(features: ChargerFeature[]): [number, number][] {

@@ -13,7 +13,7 @@ function renderPanel() {
 
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
-      <SearchAssistantPanel onApplyResults={vi.fn()} onClearResults={vi.fn()} />
+      <SearchAssistantPanel onApplyResults={vi.fn()} onClearResults={vi.fn()} onSelectResult={vi.fn()} />
     </QueryClientProvider>,
   );
 }
