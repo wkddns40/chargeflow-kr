@@ -18,8 +18,19 @@ export type ChargerSearchCommand = {
   limit?: number;
 };
 
+export type ChargerSearchBbox = {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+};
+
+export type ChargerSearchQuery = Record<string, unknown> & {
+  bbox?: ChargerSearchBbox;
+};
+
 export type ChargerSearchResponse = {
-  query: Record<string, unknown>;
+  query: ChargerSearchQuery;
   features: ChargerFeature[];
   explanation: {
     applied_filters: string[];

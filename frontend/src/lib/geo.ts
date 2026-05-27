@@ -2,6 +2,9 @@ import type { ChargerFeature, ViewState } from '../types/charger';
 
 const WEB_MERCATOR_TILE_SIZE = 512;
 const WEB_MERCATOR_LAT_LIMIT = 85.051129;
+const BBOX_FIT_PADDING_PX = 160;
+const BBOX_FIT_MIN_ZOOM = 5;
+const BBOX_FIT_MAX_ZOOM = 15.5;
 const STATION_FOCUS_ZOOM = 16.5;
 
 export type BboxBounds = {
@@ -71,6 +74,32 @@ export function getStationScreenPosition(
   };
 }
 
+export function getBboxFitViewState(bounds: BboxBounds, viewport: ViewportSize, fallback: ViewState): ViewState {
+  if (viewport.width <= 0 || viewport.height <= 0 || !isValidBounds(bounds)) {
+    return fallback;
+  }
+
+  const centerLongitude = (bounds.west + bounds.east) / 2;
+  const centerLatitude = (bounds.south + bounds.north) / 2;
+  const westNorth = lngLatToNormalizedWorld(bounds.west, bounds.north);
+  const eastSouth = lngLatToNormalizedWorld(bounds.east, bounds.south);
+  const spanX = Math.max(Math.abs(eastSouth[0] - westNorth[0]), Number.EPSILON);
+  const spanY = Math.max(Math.abs(eastSouth[1] - westNorth[1]), Number.EPSILON);
+  const usableWidth = Math.max(1, viewport.width - BBOX_FIT_PADDING_PX * 2);
+  const usableHeight = Math.max(1, viewport.height - BBOX_FIT_PADDING_PX * 2);
+  const zoomX = Math.log2(usableWidth / (WEB_MERCATOR_TILE_SIZE * spanX));
+  const zoomY = Math.log2(usableHeight / (WEB_MERCATOR_TILE_SIZE * spanY));
+  const zoom = clamp(Math.min(zoomX, zoomY), BBOX_FIT_MIN_ZOOM, BBOX_FIT_MAX_ZOOM);
+
+  return {
+    longitude: centerLongitude,
+    latitude: centerLatitude,
+    zoom: Math.round(zoom * 100) / 100,
+    pitch: fallback.pitch,
+    bearing: fallback.bearing,
+  };
+}
+
 export function buildPaths(features: ChargerFeature[]): [number, number][] {
   return features.reduce<[number, number][]>((acc, curr) => {
     const last = acc[acc.length - 1];
@@ -104,6 +133,22 @@ function worldToLngLat(x: number, y: number, zoom: number): [number, number] {
   const longitude = (x / worldSize) * 360 - 180;
   const latitude = (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / worldSize))) * 180) / Math.PI;
   return [longitude, latitude];
+}
+
+function lngLatToNormalizedWorld(longitude: number, latitude: number): [number, number] {
+  const [x, y] = lngLatToWorld(longitude, latitude, 0);
+  return [x / WEB_MERCATOR_TILE_SIZE, y / WEB_MERCATOR_TILE_SIZE];
+}
+
+function isValidBounds(bounds: BboxBounds): boolean {
+  return (
+    Number.isFinite(bounds.west) &&
+    Number.isFinite(bounds.south) &&
+    Number.isFinite(bounds.east) &&
+    Number.isFinite(bounds.north) &&
+    bounds.west <= bounds.east &&
+    bounds.south <= bounds.north
+  );
 }
 
 export function bboxFromViewState(viewState: ViewState, viewport: ViewportSize): BboxBounds {
