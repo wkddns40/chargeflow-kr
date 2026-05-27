@@ -23,6 +23,10 @@ describe('SearchAssistantPanel', () => {
     const markup = renderPanel();
 
     expect(markup).toContain('Assistant');
+    expect(markup).toContain('Ask');
+    expect(markup).toContain('Gangnam Station nearby 2km fast chargers');
+    expect(markup).toContain('Send');
+    expect(markup).toContain('Structured search');
     expect(markup).toContain('Place');
     expect(markup).toContain('Radius m');
     expect(markup).toContain('Search');

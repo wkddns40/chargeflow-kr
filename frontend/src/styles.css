@@ -86,6 +86,7 @@ body {
 }
 
 .assistant-heading button,
+.assistant-chat-form button,
 .assistant-form button {
   min-height: 34px;
   border: 0;
@@ -101,9 +102,31 @@ body {
   color: #111827;
 }
 
+.assistant-chat-form,
 .assistant-form {
   display: grid;
   gap: 10px;
+}
+
+.assistant-chat-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.assistant-advanced {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-advanced summary {
+  color: #475569;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assistant-advanced[open] summary {
+  margin-bottom: 10px;
 }
 
 .assistant-grid {
@@ -112,18 +135,21 @@ body {
   gap: 10px;
 }
 
+.assistant-chat-form label,
 .assistant-form label {
   display: grid;
   gap: 5px;
   min-width: 0;
 }
 
+.assistant-chat-form span,
 .assistant-form span {
   color: #475569;
   font-size: 12px;
   font-weight: 700;
 }
 
+.assistant-chat-form input,
 .assistant-form input,
 .assistant-form select {
   width: 100%;
@@ -137,11 +163,13 @@ body {
   padding: 7px 9px;
 }
 
+.assistant-chat-form button[type="submit"],
 .assistant-form button[type="submit"] {
   background: #111827;
   color: #ffffff;
 }
 
+.assistant-chat-form button:disabled,
 .assistant-form button:disabled {
   cursor: wait;
   opacity: 0.7;

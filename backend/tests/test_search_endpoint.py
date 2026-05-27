@@ -132,3 +132,92 @@ def test_search_chargers_reports_database_errors_without_secrets(monkeypatch) ->
 
     assert response.status_code == 500
     assert response.json()["detail"] == "station database query failed"
+
+
+def test_natural_language_search_returns_parsed_results(monkeypatch) -> None:
+    def fake_loader(bbox: tuple[float, float, float, float], limit: int) -> list[dict]:
+        assert contains_coordinate(bbox, 127.0276, 37.4979)
+        assert limit == search.SEARCH_PREFILTER_LIMIT
+        return [
+            feature("near-match", 127.0277, 37.4980),
+            feature("wrong-connector", 127.0278, 37.4981, connector_type="AC Type 2"),
+        ]
+
+    monkeypatch.setattr(search, "load_db_station_features", fake_loader)
+
+    response = client().post("/api/search/chargers/nl", json={"message": "Gangnam Station nearby 2km fast chargers"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["type"] == "search_results"
+    assert payload["input"]["parser"] == "deterministic-v1"
+    assert payload["input"]["command"] == {
+        "intent": "find_chargers",
+        "place": "Gangnam Station",
+        "radius_m": 2000,
+        "filters": {"connector_type": "DC"},
+        "sort": "distance",
+    }
+    assert [item["properties"]["charger_id"] for item in payload["features"]] == ["near-match"]
+
+
+def test_natural_language_search_requires_place() -> None:
+    response = client().post("/api/search/chargers/nl", json={"message": "nearby fast chargers"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "type": "clarification_required",
+        "message": "Search needs a place. Try: Gangnam Station nearby chargers.",
+        "missing_fields": ["place"],
+    }
+
+
+def test_natural_language_search_rejects_unsupported_intent() -> None:
+    response = client().post("/api/search/chargers/nl", json={"message": "reserve a charger near Gangnam Station"})
+
+    assert response.status_code == 400
+    assert "unsupported intent: reserve_charger" in response.json()["detail"]
+
+
+def test_natural_language_search_rejects_control_text() -> None:
+    response = client().post("/api/search/chargers/nl", json={"message": "Gangnam Station drop table stations"})
+
+    assert response.status_code == 400
+    assert "unsupported control text" in response.json()["detail"]
+
+
+def test_natural_language_search_validates_parsed_command(monkeypatch) -> None:
+    calls: list[dict] = []
+    real_validator = search.validate_search_command
+
+    def spy_validator(payload: dict) -> object:
+        calls.append(payload)
+        return real_validator(payload)
+
+    monkeypatch.setattr(search, "validate_search_command", spy_validator)
+    monkeypatch.setattr(search, "load_db_station_features", lambda bbox, limit: [])
+
+    response = client().post("/api/search/chargers/nl", json={"message": "Jeju Airport 100kW or higher"})
+
+    assert response.status_code == 200
+    assert calls == [
+        {
+            "intent": "find_chargers",
+            "place": "Jeju Airport",
+            "radius_m": 2000,
+            "filters": {"min_kw": 100},
+            "sort": "power",
+        }
+    ]
+
+
+def test_natural_language_search_reports_database_errors_without_secrets(monkeypatch) -> None:
+    def broken_loader(*args: object) -> list[dict]:
+        raise ValueError("could not parse row with password=secret")
+
+    monkeypatch.setattr(search, "load_db_station_features", broken_loader)
+
+    response = client().post("/api/search/chargers/nl", json={"message": "Gangnam Station nearby chargers"})
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "station database query failed"
