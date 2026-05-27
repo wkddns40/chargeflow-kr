@@ -15,6 +15,7 @@ export type ChargerSearchCommand = {
   radius_m: number;
   filters: ChargerSearchFilters;
   sort: 'distance' | 'power' | 'availability';
+  limit?: number;
 };
 
 export type ChargerSearchResponse = {

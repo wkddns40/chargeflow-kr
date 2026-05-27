@@ -66,6 +66,16 @@ def test_status_and_connector_aliases_are_normalized() -> None:
     assert command.filters.connector_type == "DC Combo"
 
 
+def test_optional_limit_is_preserved() -> None:
+    payload = valid_command()
+    payload["limit"] = 3
+
+    command = validate_search_command(payload)
+
+    assert command.limit == 3
+    assert command.to_dict()["limit"] == 3
+
+
 @pytest.mark.parametrize("intent", ["plan_route", "compare_prices", "", 3])
 def test_unknown_intent_rejects(intent: object) -> None:
     payload = valid_command()
@@ -81,6 +91,15 @@ def test_invalid_radius_rejects(radius_m: object) -> None:
     payload["radius_m"] = radius_m
 
     with pytest.raises(SearchCommandError, match="radius_m"):
+        validate_search_command(payload)
+
+
+@pytest.mark.parametrize("limit", [0, -1, 51, 2.5, "3", True])
+def test_invalid_limit_rejects(limit: object) -> None:
+    payload = valid_command()
+    payload["limit"] = limit
+
+    with pytest.raises(SearchCommandError, match="limit"):
         validate_search_command(payload)
 
 

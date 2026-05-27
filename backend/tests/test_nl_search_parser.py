@@ -47,6 +47,19 @@ def test_parses_available_status() -> None:
     assert command["sort"] == "distance"
 
 
+def test_parses_korean_nearest_query_with_top_three_limit() -> None:
+    message = (
+        "\uac15\ub0a8\uad6c\uccad\uc5ed\uc5d0\uc11c "
+        "\uac00\uc7a5 \uac00\uae4c\uc6b4 \ucda9\uc804\uc18c \ucc3e\uc544\ubd10"
+    )
+    command = parse(message)
+
+    assert command["place"] == "\uac15\ub0a8\uad6c\uccad\uc5ed"
+    assert command["filters"] == {}
+    assert command["sort"] == "distance"
+    assert command["limit"] == 3
+
+
 def test_missing_place_returns_clarification() -> None:
     result = parse_natural_language_search({"message": "nearby fast chargers"})
 
