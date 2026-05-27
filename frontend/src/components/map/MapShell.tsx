@@ -257,6 +257,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
                 onClearResults={() => {
                   setAssistantResults(null);
                   setSelected(null);
+                  setViewState(INITIAL_VIEW_STATE);
                 }}
               />
             )}
