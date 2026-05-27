@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import {
   fetchChargingPlan,
@@ -6,6 +6,11 @@ import {
   type RouteChargingPlanResponse,
   type RoutePlannerRoute,
 } from '../../lib/routePlanner';
+import {
+  resolveRouteFixture,
+  ROUTE_FIXTURES,
+  type RoutePlannerFixture,
+} from '../../lib/routePlannerFixtures';
 import {
   formatRoutePlannerReason,
   formatRoutePlannerScore,
@@ -22,27 +27,17 @@ type RoutePlannerPanelProps = {
   onClearRecommendations?: () => void;
 };
 
-const ROUTE_OPTIONS: Array<RoutePlannerRoute & { label: string }> = [
-  {
-    id: 'fixture-seoul-daejeon',
-    label: 'Seoul-Daejeon',
-    distance_km: 165.2,
-    polyline: [
-      [126.978, 37.5665],
-      [127.0276, 37.4979],
-      [127.3845, 36.3504],
-    ],
-  },
-];
-
 const CONNECTOR_OPTIONS = ['DC Combo', 'DC', 'CHAdeMO', 'AC Type 2'] as const;
+const DEFAULT_ROUTE_FIXTURE = ROUTE_FIXTURES[0];
+const UNSUPPORTED_ROUTE_MESSAGE = '지원 fixture 없음';
 
 export function RoutePlannerPanel({
   onApplyPlan,
   onSelectRecommendation,
   onClearRecommendations,
 }: RoutePlannerPanelProps = {}) {
-  const [routeId, setRouteId] = useState(ROUTE_OPTIONS[0].id ?? '');
+  const [origin, setOrigin] = useState(DEFAULT_ROUTE_FIXTURE.origin);
+  const [destination, setDestination] = useState(DEFAULT_ROUTE_FIXTURE.destination);
   const [batteryKwh, setBatteryKwh] = useState(77.4);
   const [currentSocPercent, setCurrentSocPercent] = useState(64);
   const [targetSocPercent, setTargetSocPercent] = useState(15);
@@ -51,18 +46,14 @@ export function RoutePlannerPanel({
   const [maxChargingKw, setMaxChargingKw] = useState(180);
   const [corridorWidthKm, setCorridorWidthKm] = useState(3);
   const [maxResults, setMaxResults] = useState(5);
-
-  const selectedRoute = useMemo(
-    () => ROUTE_OPTIONS.find((route) => route.id === routeId) ?? ROUTE_OPTIONS[0],
-    [routeId],
-  );
+  const [unsupportedRouteMessage, setUnsupportedRouteMessage] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: (request: RouteChargingPlanRequest) => fetchChargingPlan(request),
     onSuccess: (data, request) => onApplyPlan?.(data, request.route),
   });
 
-  function buildRequest(): RouteChargingPlanRequest {
+  function buildRequest(selectedRoute: RoutePlannerFixture): RouteChargingPlanRequest {
     return {
       route: {
         id: selectedRoute.id,
@@ -86,7 +77,17 @@ export function RoutePlannerPanel({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    mutation.mutate(buildRequest());
+
+    const selectedRoute = resolveRouteFixture(origin, destination);
+    if (!selectedRoute) {
+      mutation.reset();
+      onClearRecommendations?.();
+      setUnsupportedRouteMessage(UNSUPPORTED_ROUTE_MESSAGE);
+      return;
+    }
+
+    setUnsupportedRouteMessage(null);
+    mutation.mutate(buildRequest(selectedRoute));
   }
 
   return (
@@ -97,6 +98,7 @@ export function RoutePlannerPanel({
           type="button"
           onClick={() => {
             mutation.reset();
+            setUnsupportedRouteMessage(null);
             onClearRecommendations?.();
           }}
         >
@@ -105,16 +107,30 @@ export function RoutePlannerPanel({
       </div>
 
       <form className="assistant-form" onSubmit={handleSubmit}>
-        <label>
-          <span>Route</span>
-          <select value={routeId} onChange={(event) => setRouteId(event.target.value)}>
-            {ROUTE_OPTIONS.map((route) => (
-              <option key={route.id} value={route.id}>
-                {route.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="assistant-grid">
+          <label>
+            <span>Origin</span>
+            <input
+              type="text"
+              value={origin}
+              onChange={(event) => {
+                setOrigin(event.target.value);
+                setUnsupportedRouteMessage(null);
+              }}
+            />
+          </label>
+          <label>
+            <span>Destination</span>
+            <input
+              type="text"
+              value={destination}
+              onChange={(event) => {
+                setDestination(event.target.value);
+                setUnsupportedRouteMessage(null);
+              }}
+            />
+          </label>
+        </div>
 
         <div className="assistant-grid">
           <label>
@@ -222,6 +238,7 @@ export function RoutePlannerPanel({
         </button>
       </form>
 
+      {unsupportedRouteMessage && <p className="assistant-message">{unsupportedRouteMessage}</p>}
       {mutation.isError && <RoutePlanError error={mutation.error} />}
       {mutation.data && <RoutePlanResult result={mutation.data} onSelectRecommendation={onSelectRecommendation} />}
     </aside>

@@ -23,7 +23,10 @@ describe('RoutePlannerPanel', () => {
     const markup = renderPanel();
 
     expect(markup).toContain('Route planner');
-    expect(markup).toContain('Seoul-Daejeon');
+    expect(markup).toContain('Origin');
+    expect(markup).toContain('Destination');
+    expect(markup).toContain('Seoul');
+    expect(markup).toContain('Daejeon');
     expect(markup).toContain('Battery kWh');
     expect(markup).toContain('Start SoC %');
     expect(markup).toContain('Plan');
