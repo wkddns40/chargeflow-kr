@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from geocoding import normalize_place_name
-from search_schema import SUSPICIOUS_TEXT
+from search_schema import MAX_RESULT_LIMIT, SUSPICIOUS_TEXT
 
 
 DEFAULT_RADIUS_M = 2_000
@@ -19,9 +19,15 @@ MAX_MESSAGE_LENGTH = 500
 PARSER_VERSION = "deterministic-v1"
 OPENAI_PARSER_VERSION = "openai-responses-v1"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+NEAREST_QUERY_LIMIT = 3
 
 RADIUS_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>km|kilometers?|m|meters?)\b", re.IGNORECASE)
 MIN_KW_RE = re.compile(r"(?P<value>\d{1,4})\s*(?:kw|kilowatts?)\b", re.IGNORECASE)
+LIMIT_RE = re.compile(
+    r"(?:\b(?:top|nearest|closest)\s*(?P<english_value>\d{1,2})\b)"
+    r"|(?:(?P<korean_value>\d{1,2})\s*(?:\uac1c|\uacf3|\uc21c\uc704|\uc704))",
+    re.IGNORECASE,
+)
 AREA_CONTEXT_RE = re.compile(r"(전체|전역|지역|일대|도시)")
 PLACE_TRAILING_CONTEXT_RE = re.compile(r"\s*(근처|주변|인근|부근|nearby|near)\s*$", re.IGNORECASE)
 ENGLISH_PLACE_RE = re.compile(
@@ -139,6 +145,7 @@ STATUS_PHRASES = (
 POWER_SORT_PHRASES = ("highest power", "high power", "most powerful", "sort by power", "max kw")
 AVAILABILITY_SORT_PHRASES = ("available first", "sort by availability")
 DISTANCE_SORT_PHRASES = ("nearest", "closest", "nearby", "distance", "\uac00\uae4c\uc6b4")
+NEAREST_LIMIT_PHRASES = ("nearest", "closest", "\uac00\uc7a5 \uac00\uae4c\uc6b4")
 
 
 class NaturalLanguageSearchError(ValueError):
@@ -226,6 +233,9 @@ def parse_deterministic_message(message: str) -> ParsedNaturalLanguageSearch | C
         "filters": filters,
         "sort": _extract_sort(normalized, min_kw),
     }
+    limit = _extract_limit(message, normalized)
+    if limit is not None:
+        command["limit"] = limit
     return ParsedNaturalLanguageSearch(message=message, command=command)
 
 
@@ -262,6 +272,7 @@ def _parse_with_openai(
     clean_command = _clean_openai_command(command)
     clean_command["place"] = _apply_area_context_to_place(message, clean_command.get("place"))
     clean_command = _enforce_explicit_filters(message, clean_command)
+    clean_command = _enforce_nearest_limit(message, clean_command)
     return ParsedNaturalLanguageSearch(
         message=message,
         command=clean_command,
@@ -374,13 +385,16 @@ def _clean_openai_command(command: Mapping[str, Any]) -> dict[str, Any]:
         for key, value in filters.items()
         if key in {"min_kw", "status", "connector_type"} and value is not None
     }
-    return {
+    clean_command = {
         "intent": command.get("intent"),
         "place": _clean_openai_place(command.get("place")),
         "radius_m": command.get("radius_m"),
         "filters": clean_filters,
         "sort": command.get("sort"),
     }
+    if command.get("limit") is not None:
+        clean_command["limit"] = command.get("limit")
+    return clean_command
 
 
 def _clean_openai_place(value: Any) -> Any:
@@ -413,6 +427,17 @@ def _enforce_explicit_filters(message: str, command: dict[str, Any]) -> dict[str
     return command
 
 
+def _enforce_nearest_limit(message: str, command: dict[str, Any]) -> dict[str, Any]:
+    normalized = normalize_place_name(message)
+    limit = _extract_limit(message, normalized)
+    if limit is None:
+        return command
+
+    command["sort"] = "distance"
+    command["limit"] = limit
+    return command
+
+
 def _openai_system_prompt() -> str:
     return (
         "You parse user free text into a local EV charger search command. "
@@ -426,6 +451,9 @@ def _openai_system_prompt() -> str:
         "If the place phrase is missing, "
         "return clarification_required with missing_fields containing place. "
         "Use radius_m from text; default to 2000 for nearby searches. "
+        "If the user asks for nearest/closest chargers without an explicit count, set limit=3. "
+        "If nearest/closest text includes an explicit count, set limit to that count up to 50. "
+        "Otherwise set limit to null. "
         "Map Korean and English charger wording to filters: fast/rapid/quick/DC "
         "and Korean fast-charger words -> DC, slow/AC and Korean slow-charger words -> AC, "
         "available/free and Korean available words -> available, occupied/busy/in-use words -> occupied, "
@@ -451,12 +479,13 @@ def _openai_response_schema() -> dict[str, Any]:
             "command": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["intent", "place", "radius_m", "filters", "sort"],
+                "required": ["intent", "place", "radius_m", "filters", "sort", "limit"],
                 "properties": {
                     "intent": {"type": "string", "enum": ["find_chargers"]},
                     "place": {"type": "string"},
                     "radius_m": {"type": "integer", "minimum": 1, "maximum": 50000},
                     "sort": {"type": "string", "enum": ["distance", "power", "availability"]},
+                    "limit": {"type": ["integer", "null"], "minimum": 1, "maximum": 50},
                     "filters": {
                         "type": "object",
                         "additionalProperties": False,
@@ -548,6 +577,24 @@ def _extract_radius_m(message: str) -> int:
     unit = match.group("unit").casefold()
     multiplier = 1_000 if unit.startswith("k") else 1
     return max(1, int(round(value * multiplier)))
+
+
+def _extract_limit(message: str, normalized: str) -> int | None:
+    if not _is_nearest_limit_query(normalized):
+        return None
+
+    match = LIMIT_RE.search(message)
+    if match is not None:
+        value_text = match.group("english_value") or match.group("korean_value")
+        if value_text is not None:
+            value = int(value_text)
+            return min(max(value, 1), MAX_RESULT_LIMIT)
+
+    return NEAREST_QUERY_LIMIT
+
+
+def _is_nearest_limit_query(normalized: str) -> bool:
+    return any(normalize_place_name(phrase) in normalized for phrase in NEAREST_LIMIT_PHRASES)
 
 
 def _extract_min_kw(message: str) -> int | None:

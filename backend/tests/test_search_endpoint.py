@@ -175,6 +175,51 @@ def test_natural_language_search_returns_parsed_results(monkeypatch) -> None:
     assert [item["properties"]["charger_id"] for item in payload["features"]] == ["near-match"]
 
 
+def test_natural_language_nearest_search_limits_to_three_distance_results(monkeypatch) -> None:
+    monkeypatch.setattr(
+        search,
+        "parse_natural_language_search",
+        lambda *args, **kwargs: search.ParsedNaturalLanguageSearch(
+            message=(
+                "\uac15\ub0a8\uad6c\uccad\uc5ed\uc5d0\uc11c "
+                "\uac00\uc7a5 \uac00\uae4c\uc6b4 \ucda9\uc804\uc18c \ucc3e\uc544\ubd10"
+            ),
+            command={
+                "intent": "find_chargers",
+                "place": "Gangnam Station",
+                "radius_m": 2000,
+                "filters": {},
+                "sort": "distance",
+                "limit": 3,
+            },
+        ),
+    )
+
+    def fake_loader(bbox: tuple[float, float, float, float], limit: int) -> list[dict]:
+        assert contains_coordinate(bbox, 127.0276, 37.4979)
+        assert limit == search.SEARCH_PREFILTER_LIMIT
+        return [
+            feature("rank-4", 127.0300, 37.4979),
+            feature("rank-2", 127.0280, 37.4979),
+            feature("rank-1", 127.0277, 37.4979),
+            feature("rank-3", 127.0290, 37.4979),
+        ]
+
+    monkeypatch.setattr(search, "load_db_station_features", fake_loader)
+
+    response = client().post("/api/search/chargers/nl", json={"message": "ignored by monkeypatch"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["properties"]["charger_id"] for item in payload["features"]] == ["rank-1", "rank-2", "rank-3"]
+    assert [item["properties"]["distance_m"] for item in payload["features"]] == sorted(
+        item["properties"]["distance_m"] for item in payload["features"]
+    )
+    assert payload["input"]["command"]["limit"] == 3
+    assert payload["explanation"]["result_limit"] == 3
+    assert "limit=3" in payload["explanation"]["applied_filters"]
+
+
 def test_natural_language_search_requires_place() -> None:
     response = client().post("/api/search/chargers/nl", json={"message": "nearby fast chargers"})
 

@@ -16,8 +16,9 @@ MIN_RADIUS_M = 1
 MAX_RADIUS_M = 50_000
 MAX_PLACE_LENGTH = 80
 MAX_MIN_KW = 1_000
+MAX_RESULT_LIMIT = 50
 
-TOP_LEVEL_FIELDS = {"intent", "place", "radius_m", "filters", "sort"}
+TOP_LEVEL_FIELDS = {"intent", "place", "radius_m", "filters", "sort", "limit"}
 FILTER_FIELDS = {"min_kw", "status", "connector_type"}
 STATUS_ALIASES = {
     "available": "available",
@@ -98,15 +99,19 @@ class SearchCommand:
     radius_m: int
     filters: SearchFilters
     sort: str
+    limit: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "intent": self.intent,
             "place": self.place,
             "radius_m": self.radius_m,
             "filters": self.filters.to_dict(),
             "sort": self.sort,
         }
+        if self.limit is not None:
+            result["limit"] = self.limit
+        return result
 
 
 def validate_search_command(payload: Mapping[str, Any]) -> SearchCommand:
@@ -120,8 +125,9 @@ def validate_search_command(payload: Mapping[str, Any]) -> SearchCommand:
     radius_m = _parse_positive_int(payload.get("radius_m"), "radius_m", maximum=MAX_RADIUS_M)
     filters = _parse_filters(payload.get("filters", {}))
     sort = _parse_enum(payload.get("sort", "distance"), SUPPORTED_SORTS, "sort")
+    limit = _parse_optional_positive_int(payload.get("limit"), "limit", maximum=MAX_RESULT_LIMIT)
 
-    return SearchCommand(intent=intent, place=place, radius_m=radius_m, filters=filters, sort=sort)
+    return SearchCommand(intent=intent, place=place, radius_m=radius_m, filters=filters, sort=sort, limit=limit)
 
 
 def _parse_filters(value: Any) -> SearchFilters:
@@ -170,6 +176,12 @@ def _parse_positive_int(value: Any, field: str, *, maximum: int) -> int:
     if value > maximum:
         raise SearchCommandError(f"{field} must be {maximum} or less")
     return value
+
+
+def _parse_optional_positive_int(value: Any, field: str, *, maximum: int) -> int | None:
+    if value is None:
+        return None
+    return _parse_positive_int(value, field, maximum=maximum)
 
 
 def _parse_enum(value: Any, allowed: tuple[str, ...], field: str) -> str:

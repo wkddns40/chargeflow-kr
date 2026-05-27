@@ -92,6 +92,7 @@ def execute_search(command: SearchCommand) -> dict:
 
     features = load_db_station_features(bbox, SEARCH_PREFILTER_LIMIT)
     matched = search_station_features(features, place.lon, place.lat, command, bbox, enforce_radius=enforce_radius)
+    result_limit = command.limit or MAX_SEARCH_RESULTS
 
     return {
         "query": {
@@ -104,12 +105,12 @@ def execute_search(command: SearchCommand) -> dict:
                 "north": bbox[3],
             },
         },
-        "features": matched[:MAX_SEARCH_RESULTS],
+        "features": matched[:result_limit],
         "explanation": {
             "applied_filters": applied_filters(command),
             "data_freshness": "synthetic-snapshot",
             "source": STATION_SOURCE,
-            "result_limit": MAX_SEARCH_RESULTS,
+            "result_limit": result_limit,
         },
     }
 
@@ -195,6 +196,8 @@ def distance_m(feature: Feature) -> int:
 
 def applied_filters(command: SearchCommand) -> list[str]:
     filters = [f"radius_m={command.radius_m}", f"sort={command.sort}"]
+    if command.limit is not None:
+        filters.append(f"limit={command.limit}")
     if command.filters.min_kw is not None:
         filters.append(f"min_kw={command.filters.min_kw}")
     if command.filters.status is not None:

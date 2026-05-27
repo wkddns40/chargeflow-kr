@@ -277,15 +277,30 @@ function SearchResultList({ result }: { result: ChargerSearchResponse }) {
         <span>{result.explanation.data_freshness}</span>
       </div>
       <ol>
-        {result.features.slice(0, 6).map((feature) => (
-          <li key={feature.properties.charger_id}>
-            <strong>{feature.properties.charger_name}</strong>
-            <span>
-              {feature.properties.max_kw} kW / {feature.properties.status}
-            </span>
-          </li>
-        ))}
+        {result.features.slice(0, 6).map((feature) => {
+          const distanceLabel = formatDistance(feature.properties.distance_m);
+
+          return (
+            <li key={feature.properties.charger_id}>
+              <strong>{feature.properties.charger_name}</strong>
+              <span>
+                {distanceLabel ? `${distanceLabel} / ` : ''}
+                {feature.properties.max_kw} kW / {feature.properties.status}
+              </span>
+            </li>
+          );
+        })}
       </ol>
     </div>
   );
+}
+
+function formatDistance(distanceM: number | undefined): string | undefined {
+  if (distanceM === undefined || !Number.isFinite(distanceM)) {
+    return undefined;
+  }
+  if (distanceM < 1000) {
+    return `${Math.round(distanceM).toLocaleString()} m`;
+  }
+  return `${(distanceM / 1000).toFixed(1)} km`;
 }

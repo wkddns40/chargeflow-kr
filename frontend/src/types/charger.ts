@@ -7,6 +7,7 @@ export type ChargerProperties = {
   address: string;
   status: 'available' | 'occupied' | 'offline' | 'unknown';
   status_updated_at: string;
+  distance_m?: number;
 };
 
 export type ChargerFeature = {
