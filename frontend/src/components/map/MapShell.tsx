@@ -5,7 +5,7 @@ import { PathLayer, ScatterplotLayer } from '@deck.gl/layers';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { ChargerFeature, ViewState } from '../../types/charger';
 import { INITIAL_VIEW_STATE, MAP_STYLE_URL, REFERENCE_VIEWPORT_SIZE } from '../../constants/viewport';
-import { getValidData } from '../../lib/geo';
+import { getStationFocusViewState, getValidData } from '../../lib/geo';
 import type { RouteChargingPlanResponse, RoutePlannerRoute } from '../../lib/routePlanner';
 import {
   findRouteRecommendationStation,
@@ -76,17 +76,26 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
     () => matchRouteRecommendationStations(validBaseStations, routeRecommendationIds),
     [routeRecommendationIds, validBaseStations],
   );
+  const visibleRouteRecommendationStations = useMemo(
+    () => (assistantResults ? [] : routeRecommendationStations),
+    [assistantResults, routeRecommendationStations],
+  );
   const routePathData = useMemo(() => getRoutePathLayerData(routePlanRoute), [routePlanRoute]);
   const dataMode = viewportStations.enabled ? 'Viewport API' : import.meta.env.VITE_DEMO_MODE === 'false' ? 'API' : 'Static demo';
   const rightPanelsEnabled = assistantSearchEnabled || routePlannerEnabled;
+  const handleFocusStation = useCallback((station: ChargerFeature) => {
+    setAssistantResults([station]);
+    setSelected(station);
+    setViewState((currentViewState) => getStationFocusViewState(station, currentViewState));
+  }, []);
   const handleSelectRouteRecommendation = useCallback(
     (stationId: string) => {
       const station = findRouteRecommendationStation(routeRecommendationStations, stationId);
       if (station) {
-        setSelected(station);
+        handleFocusStation(station);
       }
     },
-    [routeRecommendationStations],
+    [handleFocusStation, routeRecommendationStations],
   );
 
   useEffect(() => {
@@ -109,9 +118,13 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
         getRadius: (station: ChargerFeature) => Math.max(5, Math.min(13, station.properties.max_kw / 18)),
         getPosition: (station: ChargerFeature) => station.geometry.coordinates,
         getFillColor: (station: ChargerFeature) => STATUS_COLORS[station.properties.status],
-        onClick: ({ object }: { object?: ChargerFeature | null }) => setSelected(object ?? null),
+        onClick: ({ object }: { object?: ChargerFeature | null }) => {
+          if (object) {
+            handleFocusStation(object);
+          }
+        },
       }),
-    [validStations],
+    [handleFocusStation, validStations],
   );
   const routePathLayer = useMemo(
     () =>
@@ -132,7 +145,7 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
     () =>
       new ScatterplotLayer<ChargerFeature>({
         id: 'route-recommendation-points',
-        data: routeRecommendationStations,
+        data: visibleRouteRecommendationStations,
         pickable: true,
         radiusUnits: 'pixels',
         stroked: true,
@@ -143,17 +156,27 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
         getPosition: (station: ChargerFeature) => station.geometry.coordinates,
         getFillColor: () => [37, 99, 235, 90],
         getLineColor: () => [37, 99, 235, 245],
-        onClick: ({ object }: { object?: ChargerFeature | null }) => setSelected(object ?? null),
+        onClick: ({ object }: { object?: ChargerFeature | null }) => {
+          if (object) {
+            handleFocusStation(object);
+          }
+        },
       }),
-    [routeRecommendationStations],
+    [handleFocusStation, visibleRouteRecommendationStations],
   );
   const layers = useMemo(
     () => [
       ...(routePathData.length > 0 ? [routePathLayer] : []),
       stationLayer,
-      ...(routeRecommendationStations.length > 0 ? [routeRecommendationLayer] : []),
+      ...(visibleRouteRecommendationStations.length > 0 ? [routeRecommendationLayer] : []),
     ],
-    [routePathData.length, routePathLayer, routeRecommendationLayer, routeRecommendationStations.length, stationLayer],
+    [
+      routePathData.length,
+      routePathLayer,
+      routeRecommendationLayer,
+      stationLayer,
+      visibleRouteRecommendationStations.length,
+    ],
   );
 
   return (
@@ -196,7 +219,11 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
                   setAssistantResults(features);
                   setSelected(null);
                 }}
-                onClearResults={() => setAssistantResults(null)}
+                onSelectResult={handleFocusStation}
+                onClearResults={() => {
+                  setAssistantResults(null);
+                  setSelected(null);
+                }}
               />
             )}
             {routePlannerEnabled && (

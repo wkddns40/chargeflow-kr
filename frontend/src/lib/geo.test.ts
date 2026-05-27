@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { bboxFromViewState, toBboxParam } from './geo';
-import type { ViewState } from '../types/charger';
+import { bboxFromViewState, getStationFocusViewState, toBboxParam } from './geo';
+import type { ChargerFeature, ViewState } from '../types/charger';
 
 const SEOUL_VIEW: ViewState = {
   longitude: 126.978,
@@ -8,6 +8,21 @@ const SEOUL_VIEW: ViewState = {
   zoom: 11,
   pitch: 0,
   bearing: 0,
+};
+
+const STATION: ChargerFeature = {
+  type: 'Feature',
+  geometry: { type: 'Point', coordinates: [127.0412865, 37.5171756] },
+  properties: {
+    charger_id: 'station-1',
+    charger_name: 'Station 1',
+    operator: 'Operator',
+    connector_type: 'DC Combo',
+    max_kw: 200,
+    address: 'Address',
+    status: 'available',
+    status_updated_at: '2026-05-27T00:00:00+09:00',
+  },
 };
 
 describe('toBboxParam', () => {
@@ -30,5 +45,17 @@ describe('bboxFromViewState', () => {
 
   it('rejects empty viewport dimensions', () => {
     expect(() => bboxFromViewState(SEOUL_VIEW, { width: 0, height: 768 })).toThrow('viewport width');
+  });
+});
+
+describe('getStationFocusViewState', () => {
+  it('centers and zooms the map around a selected station', () => {
+    const viewState = getStationFocusViewState(STATION, SEOUL_VIEW);
+
+    expect(viewState.longitude).toBe(127.0412865);
+    expect(viewState.latitude).toBe(37.5171756);
+    expect(viewState.zoom).toBeGreaterThan(SEOUL_VIEW.zoom);
+    expect(viewState.pitch).toBe(0);
+    expect(viewState.bearing).toBe(0);
   });
 });
