@@ -140,6 +140,12 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
     setSelected(null);
     setViewState(INITIAL_VIEW_STATE);
   }, []);
+  const handlePrepareRoutePlan = useCallback((route: RoutePlannerRoute) => {
+    setRoutePlanResult(null);
+    setRoutePlanRoute(route);
+    setSelected(null);
+    setViewState((currentViewState) => getRouteFitViewState(route, REFERENCE_VIEWPORT_SIZE, currentViewState));
+  }, []);
   const handleSelectRouteRecommendation = useCallback(
     (stationId: string) => {
       const station = findRouteRecommendationStation(routeRecommendationStations, stationId);
@@ -278,12 +284,17 @@ export function MapShell({ stations, assistantSearchEnabled = false, routePlanne
             )}
             {routePlannerEnabled && (
               <RoutePlannerPanel
+                onPreparePlan={handlePrepareRoutePlan}
                 onApplyPlan={(result, route) => {
                   setRoutePlanResult(result);
                   setRoutePlanRoute(route);
                   setViewState((currentViewState) =>
                     getRouteFitViewState(route, REFERENCE_VIEWPORT_SIZE, currentViewState),
                   );
+                }}
+                onPlanError={() => {
+                  setRoutePlanResult(null);
+                  setRoutePlanRoute(null);
                 }}
                 onSelectRecommendation={handleSelectRouteRecommendation}
                 onClearRecommendations={handleResetMapHome}

@@ -1,9 +1,10 @@
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter
 from typing import Annotated
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.db.connection import open_connection
 from app.db.station_repository import query_station_features
@@ -37,23 +38,32 @@ def load_db_station_features(bbox: BBox, limit: int) -> list[Feature]:
         return query_station_features(connection, bbox, limit)
 
 
+def format_server_timing(timings_ms: dict[str, float]) -> str:
+    return ", ".join(f"{name};dur={duration_ms:.1f}" for name, duration_ms in timings_ms.items())
+
+
 @router.get("/stations", response_model=StationFeatureCollection)
 def list_stations(
+    response: Response,
     bbox: Annotated[str | None, Query(description="west,south,east,north in EPSG:4326")] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
 ) -> dict:
+    request_started_at = perf_counter()
     if bbox is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="bbox is required as west,south,east,north",
         )
 
+    parse_started_at = perf_counter()
     try:
         parsed_bbox = parse_bbox(bbox)
         normalized_limit = normalize_limit(limit)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    parse_ms = (perf_counter() - parse_started_at) * 1000
 
+    db_started_at = perf_counter()
     try:
         filtered = load_db_station_features(parsed_bbox, normalized_limit)
     except (psycopg.Error, RuntimeError, ValueError) as exc:
@@ -61,6 +71,15 @@ def list_stations(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="station database query failed",
         ) from exc
+    db_ms = (perf_counter() - db_started_at) * 1000
+    total_ms = (perf_counter() - request_started_at) * 1000
+    response.headers["Server-Timing"] = format_server_timing(
+        {
+            "parse": parse_ms,
+            "db": db_ms,
+            "app": total_ms,
+        }
+    )
 
     return {
         "type": "FeatureCollection",
