@@ -389,6 +389,27 @@ const ROUTE_FIXTURE_BY_PLACE_PAIR = new Map(
   ROUTE_FIXTURES.map((fixture) => [routePairKey(fixture.originPlaceId, fixture.destinationPlaceId), fixture]),
 );
 
+const SEOUL_ROUTE_PLACE_ID: RoutePlaceId = 'seoul-jongno';
+const SEOUL_DISTRICT_PLACE_IDS = new Set<RoutePlaceId>([
+  'seoul-gangnam',
+  'seoul-seocho',
+  'seoul-songpa',
+  'seoul-mapo',
+  'seoul-seongdong',
+  'seoul-yongsan',
+  'seoul-jongno',
+]);
+const SEOUL_DISTRICT_PREFIXES: Array<[string, RoutePlaceId]> = [
+  ['강남', 'seoul-gangnam'],
+  ['서초', 'seoul-seocho'],
+  ['송파', 'seoul-songpa'],
+  ['마포', 'seoul-mapo'],
+  ['성동', 'seoul-seongdong'],
+  ['용산', 'seoul-yongsan'],
+  ['종로', 'seoul-jongno'],
+];
+const SEOUL_REGION_PREFIXES = ['서울특별시', '서울시', '서울'];
+
 export function resolveRouteFixture(origin: string, destination: string): RoutePlannerFixture | null {
   const originPlace = resolveRoutePlace(origin);
   const destinationPlace = resolveRoutePlace(destination);
@@ -397,7 +418,13 @@ export function resolveRouteFixture(origin: string, destination: string): RouteP
     return null;
   }
 
-  return ROUTE_FIXTURE_BY_PLACE_PAIR.get(routePairKey(originPlace.id, destinationPlace.id)) ?? null;
+  return (
+    ROUTE_FIXTURE_BY_PLACE_PAIR.get(routePairKey(originPlace.id, destinationPlace.id)) ??
+    ROUTE_FIXTURE_BY_PLACE_PAIR.get(
+      routePairKey(resolveSeoulRoutePlaceId(originPlace.id), resolveSeoulRoutePlaceId(destinationPlace.id)),
+    ) ??
+    null
+  );
 }
 
 export function resolveRoutePlace(value: string): RoutePlannerPlace | null {
@@ -413,7 +440,9 @@ export function resolveRoutePlace(value: string): RoutePlannerPlace | null {
       [place.label, ...place.aliases].some(
         (alias) => normalizeRoutePlace(alias) === normalizedValue || compactRoutePlace(alias) === compactValue,
       ),
-    ) ?? null
+    ) ??
+    resolveSeoulDistrictRoutePlace(compactValue) ??
+    null
   );
 }
 
@@ -423,6 +452,21 @@ export function normalizeRoutePlace(value: string): string {
 
 function compactRoutePlace(value: string): string {
   return normalizeRoutePlace(value).replace(/\s+/g, '');
+}
+
+function resolveSeoulDistrictRoutePlace(compactValue: string): RoutePlannerPlace | null {
+  const compactSeoulDistrict = stripSeoulRegionPrefix(compactValue);
+  const matchedPrefix = SEOUL_DISTRICT_PREFIXES.find(([prefix]) => compactSeoulDistrict.startsWith(prefix));
+  return matchedPrefix ? getRoutePlace(matchedPrefix[1]) : null;
+}
+
+function stripSeoulRegionPrefix(compactValue: string): string {
+  const matchedPrefix = SEOUL_REGION_PREFIXES.find((prefix) => compactValue.startsWith(prefix));
+  return matchedPrefix ? compactValue.slice(matchedPrefix.length) : compactValue;
+}
+
+function resolveSeoulRoutePlaceId(placeId: RoutePlaceId): RoutePlaceId {
+  return SEOUL_DISTRICT_PLACE_IDS.has(placeId) ? SEOUL_ROUTE_PLACE_ID : placeId;
 }
 
 function buildRouteFixture(definition: RouteDefinition, reverse = false): RoutePlannerFixture {
