@@ -2,6 +2,8 @@
 
 This package runs the synthetic snapshot demo API as a Dockerized FastAPI service.
 
+Automatic Vercel Git deployments are disabled in `vercel.json`. Production deploys are run only by `.github/workflows/vercel-production.yml` after a push to `main`.
+
 ## Runtime
 
 Build from the `backend/` directory:
