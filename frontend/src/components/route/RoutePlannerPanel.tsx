@@ -90,18 +90,19 @@ export function RoutePlannerPanel({
     mutation.mutate(buildRequest(selectedRoute));
   }
 
+  function handleClear() {
+    mutation.reset();
+    setOrigin(DEFAULT_ROUTE_FIXTURE.origin);
+    setDestination(DEFAULT_ROUTE_FIXTURE.destination);
+    setUnsupportedRouteMessage(null);
+    onClearRecommendations?.();
+  }
+
   return (
     <aside className="route-planner-panel" aria-label="Route planner">
       <div className="assistant-heading">
         <p className="eyebrow">Route planner</p>
-        <button
-          type="button"
-          onClick={() => {
-            mutation.reset();
-            setUnsupportedRouteMessage(null);
-            onClearRecommendations?.();
-          }}
-        >
+        <button type="button" onClick={handleClear}>
           Clear
         </button>
       </div>
