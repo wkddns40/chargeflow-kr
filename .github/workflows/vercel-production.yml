@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: vercel-production-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   frontend:
@@ -42,17 +42,14 @@ jobs:
 
       - name: Pull Vercel production environment
         if: steps.deploy_secrets.outputs.ready == 'true'
-        working-directory: frontend
         run: npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       - name: Build Vercel output
         if: steps.deploy_secrets.outputs.ready == 'true'
-        working-directory: frontend
         run: npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN"
 
       - name: Deploy frontend production
         if: steps.deploy_secrets.outputs.ready == 'true'
-        working-directory: frontend
         run: npx --yes vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
 
   backend:
@@ -84,15 +81,12 @@ jobs:
 
       - name: Pull Vercel production environment
         if: steps.deploy_secrets.outputs.ready == 'true'
-        working-directory: backend
         run: npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       - name: Build Vercel output
         if: steps.deploy_secrets.outputs.ready == 'true'
-        working-directory: backend
         run: npx --yes vercel@latest build --prod --token="$VERCEL_TOKEN"
 
       - name: Deploy backend production
         if: steps.deploy_secrets.outputs.ready == 'true'
-        working-directory: backend
         run: npx --yes vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
