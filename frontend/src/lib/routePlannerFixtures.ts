@@ -54,6 +54,29 @@ type RouteDefinition = {
   polyline?: RouteCoordinate[];
 };
 
+const SEOUL_DISTRICT_ROUTE_PLACE_IDS: RoutePlaceId[] = [
+  'seoul-gangnam',
+  'seoul-seocho',
+  'seoul-songpa',
+  'seoul-mapo',
+  'seoul-seongdong',
+  'seoul-yongsan',
+  'seoul-jongno',
+];
+const SEOUL_DISTRICT_ROUTE_VARIANT_PLACE_IDS = SEOUL_DISTRICT_ROUTE_PLACE_IDS.filter(
+  (placeId) => placeId !== 'seoul-jongno',
+);
+const SEOUL_DISTRICT_PREFIXES: Array<[string, RoutePlaceId]> = [
+  ['강남', 'seoul-gangnam'],
+  ['서초', 'seoul-seocho'],
+  ['송파', 'seoul-songpa'],
+  ['마포', 'seoul-mapo'],
+  ['성동', 'seoul-seongdong'],
+  ['용산', 'seoul-yongsan'],
+  ['종로', 'seoul-jongno'],
+];
+const SEOUL_REGION_PREFIXES = ['서울특별시', '서울시', '서울'];
+
 export const ROUTE_PLACE_CATALOG: RoutePlannerPlace[] = [
   {
     id: 'seoul-gangnam',
@@ -253,7 +276,11 @@ export const ROUTE_PLACE_CATALOG: RoutePlannerPlace[] = [
   },
 ];
 
-const ROUTE_DEFINITIONS: RouteDefinition[] = [
+const ROUTE_PLACE_BY_ID = new Map<RoutePlaceId, RoutePlannerPlace>(
+  ROUTE_PLACE_CATALOG.map((place) => [place.id, place]),
+);
+
+const SEOUL_ROUTE_DEFINITIONS: RouteDefinition[] = [
   {
     origin: 'seoul-jongno',
     destination: 'daejeon-central',
@@ -318,6 +345,9 @@ const ROUTE_DEFINITIONS: RouteDefinition[] = [
     distance_km: 370,
     path: ['seoul-jongno', 'seoul-gangnam', 'daejeon-central', 'daegu-suseong', 'ulsan-samsan'],
   },
+];
+
+const OTHER_ROUTE_DEFINITIONS: RouteDefinition[] = [
   {
     origin: 'daejeon-central',
     destination: 'daejeon-yuseong',
@@ -376,9 +406,11 @@ const ROUTE_DEFINITIONS: RouteDefinition[] = [
   },
 ];
 
-const ROUTE_PLACE_BY_ID = new Map<RoutePlaceId, RoutePlannerPlace>(
-  ROUTE_PLACE_CATALOG.map((place) => [place.id, place]),
-);
+const ROUTE_DEFINITIONS: RouteDefinition[] = [
+  ...SEOUL_ROUTE_DEFINITIONS,
+  ...buildSeoulDistrictRouteDefinitions(SEOUL_ROUTE_DEFINITIONS),
+  ...OTHER_ROUTE_DEFINITIONS,
+];
 
 export const ROUTE_FIXTURES: RoutePlannerFixture[] = ROUTE_DEFINITIONS.flatMap((definition) => [
   buildRouteFixture(definition),
@@ -413,7 +445,9 @@ export function resolveRoutePlace(value: string): RoutePlannerPlace | null {
       [place.label, ...place.aliases].some(
         (alias) => normalizeRoutePlace(alias) === normalizedValue || compactRoutePlace(alias) === compactValue,
       ),
-    ) ?? null
+    ) ??
+    resolveSeoulDistrictRoutePlace(compactValue) ??
+    null
   );
 }
 
@@ -423,6 +457,52 @@ export function normalizeRoutePlace(value: string): string {
 
 function compactRoutePlace(value: string): string {
   return normalizeRoutePlace(value).replace(/\s+/g, '');
+}
+
+function resolveSeoulDistrictRoutePlace(compactValue: string): RoutePlannerPlace | null {
+  const compactSeoulDistrict = stripSeoulRegionPrefix(compactValue);
+  const matchedPrefix = SEOUL_DISTRICT_PREFIXES.find(([prefix]) => compactSeoulDistrict.startsWith(prefix));
+  return matchedPrefix ? getRoutePlace(matchedPrefix[1]) : null;
+}
+
+function stripSeoulRegionPrefix(compactValue: string): string {
+  const matchedPrefix = SEOUL_REGION_PREFIXES.find((prefix) => compactValue.startsWith(prefix));
+  return matchedPrefix ? compactValue.slice(matchedPrefix.length) : compactValue;
+}
+
+function buildSeoulDistrictRouteDefinitions(baseDefinitions: RouteDefinition[]): RouteDefinition[] {
+  return SEOUL_DISTRICT_ROUTE_VARIANT_PLACE_IDS.flatMap((origin) =>
+    baseDefinitions.map((definition) => buildSeoulDistrictRouteDefinition(definition, origin)),
+  );
+}
+
+function buildSeoulDistrictRouteDefinition(definition: RouteDefinition, origin: RoutePlaceId): RouteDefinition {
+  const route: RouteDefinition = {
+    origin,
+    destination: definition.destination,
+    distance_km: definition.distance_km,
+  };
+
+  if (definition.polyline) {
+    route.polyline = dedupeRoutePolyline([getRoutePlace(origin).coordinate, ...definition.polyline.slice(1)]);
+  }
+
+  if (definition.path) {
+    route.path = dedupeRoutePath([origin, ...definition.path.slice(1)]);
+  }
+
+  return route;
+}
+
+function dedupeRoutePath(path: RoutePlaceId[]): RoutePlaceId[] {
+  return path.filter((placeId, index) => index === 0 || placeId !== path[index - 1]);
+}
+
+function dedupeRoutePolyline(polyline: RouteCoordinate[]): RouteCoordinate[] {
+  return polyline.filter(
+    (coordinate, index) =>
+      index === 0 || coordinate[0] !== polyline[index - 1][0] || coordinate[1] !== polyline[index - 1][1],
+  );
 }
 
 function buildRouteFixture(definition: RouteDefinition, reverse = false): RoutePlannerFixture {

@@ -16,6 +16,17 @@ describe('route planner place catalog', () => {
     expect(resolveRoutePlace('제주시')?.id).toBe('jeju-city');
     expect(resolveRoutePlace('서귀포')?.id).toBe('seogwipo');
   });
+
+  it('normalizes supported Seoul district prefixes before arbitrary suffixes', () => {
+    expect(resolveRoutePlace('강남구청역')?.id).toBe('seoul-gangnam');
+    expect(resolveRoutePlace('서울 강남대로')?.id).toBe('seoul-gangnam');
+    expect(resolveRoutePlace('종로3가역')?.id).toBe('seoul-jongno');
+    expect(resolveRoutePlace('마포구청')?.id).toBe('seoul-mapo');
+    expect(resolveRoutePlace('성동왕십리')?.id).toBe('seoul-seongdong');
+    expect(resolveRoutePlace('용산전자상가')?.id).toBe('seoul-yongsan');
+    expect(resolveRoutePlace('송파잠실역')?.id).toBe('seoul-songpa');
+    expect(resolveRoutePlace('서초교대역')?.id).toBe('seoul-seocho');
+  });
 });
 
 describe('resolveRouteFixture', () => {
@@ -32,6 +43,22 @@ describe('resolveRouteFixture', () => {
     expect(resolveRouteFixture('대구', '울산')?.id).toBe('fixture-daegu-ulsan');
   });
 
+  it('keeps supported Seoul districts as concrete route origins and destinations', () => {
+    const gangnamToDaejeon = resolveRouteFixture('강남구청역', '대전역');
+    const daejeonToYongsan = resolveRouteFixture('대전역', '용산전자상가');
+    const mapoToBusan = resolveRouteFixture('마포구청', '부산역');
+
+    expect(gangnamToDaejeon?.id).toBe('fixture-seoul-gangnam-daejeon');
+    expect(gangnamToDaejeon?.originPlaceId).toBe('seoul-gangnam');
+    expect(gangnamToDaejeon?.destinationPlaceId).toBe('daejeon-central');
+    expect(daejeonToYongsan?.id).toBe('fixture-daejeon-seoul-yongsan');
+    expect(daejeonToYongsan?.originPlaceId).toBe('daejeon-central');
+    expect(daejeonToYongsan?.destinationPlaceId).toBe('seoul-yongsan');
+    expect(mapoToBusan?.id).toBe('fixture-seoul-mapo-busan');
+    expect(mapoToBusan?.originPlaceId).toBe('seoul-mapo');
+    expect(mapoToBusan?.destinationPlaceId).toBe('busan-station');
+  });
+
   it('keeps route fixtures explicit instead of generating every place pair', () => {
     expect(resolveRouteFixture('강남', '서귀포')).toBeNull();
     expect(resolveRouteFixture('부천', '해운대')).toBeNull();
@@ -40,7 +67,7 @@ describe('resolveRouteFixture', () => {
   it('keeps every deterministic route fixture bidirectional', () => {
     const ids = new Set(ROUTE_FIXTURES.map((fixture) => fixture.id));
 
-    expect(ROUTE_FIXTURES).toHaveLength(50);
+    expect(ROUTE_FIXTURES).toHaveLength(218);
     expect(ids.size).toBe(ROUTE_FIXTURES.length);
     for (const fixture of ROUTE_FIXTURES) {
       expect(resolveRouteFixture(fixture.origin, fixture.destination)?.id).toBe(fixture.id);
