@@ -15,6 +15,8 @@ Output Directory: dist
 
 `vercel.json` stores the same build settings for the frontend project.
 
+Automatic Vercel Git deployments are disabled in `vercel.json`. Production deploys are run only by `.github/workflows/vercel-production.yml` after a push to `main`.
+
 ## Demo Environment
 
 Set these Vercel environment variables for the public synthetic snapshot demo:
