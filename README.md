@@ -73,17 +73,50 @@ VITE_API_BASE_URL=https://chargeflow-kr-api.vercel.app
 
 ## 아키텍처
 
+### 런타임 데이터 흐름
+
 ```mermaid
 flowchart LR
-    user[사용자 브라우저] -->|HTTPS| frontend[Vercel Frontend<br/>React + Vite SPA]
-    frontend -->|MapLibre tiles| tiles[OpenFreeMap / OSM tiles]
-    frontend -->|GET /api/stations bbox| api[Vercel FastAPI<br/>api/index.py]
+    user["사용자 브라우저"] -->|HTTPS| frontend["Vercel Frontend<br/>React + Vite SPA"]
+    frontend -->|MapLibre style/tiles| tiles["OpenFreeMap / OSM tiles"]
+    frontend -->|GET /api/stations?bbox&limit| api["Vercel FastAPI<br/>api/index.py"]
     frontend -->|POST /api/search/chargers| api
+    frontend -->|POST /api/search/chargers/nl| api
     frontend -->|POST /api/routes/charging-plan| api
-    api -->|psycopg + SQL bbox query| db[(Supabase Postgres<br/>PostGIS)]
+
+    api -->|optional NL parse| openai["OpenAI Responses API<br/>gpt-4o-mini"]
+    api -->|psycopg<br/>PostGIS bbox query| db[(Supabase Postgres<br/>PostGIS)]
     api -->|validated JSON| frontend
-    frontend -->|render| deck[deck.gl WebGL layers]
+    frontend -->|render| deck["deck.gl WebGL layers"]
+    deck --> map["지도 마커 / 경로 / 상세 패널"]
 ```
+
+프론트엔드 서버가 API를 대신 호출하는 구조가 아니라, 브라우저에서 실행되는 SPA가 `VITE_API_BASE_URL`의 backend origin으로 직접 `fetch`합니다. 따라서 production backend는 frontend origin을 CORS로 허용해야 합니다.
+
+### 배포 흐름
+
+```mermaid
+flowchart TD
+    push["main push / force push"] --> actions["GitHub Actions<br/>Vercel Production Deploy"]
+    actions --> frontendBuild["Frontend<br/>vercel pull / build / deploy"]
+    actions --> backendBuild["Backend<br/>setup Python + uv<br/>vercel pull / build / deploy"]
+
+    frontendBuild --> frontendProd["Vercel Production<br/>chargeflow-kr"]
+    backendBuild --> backendProd["Vercel Production<br/>chargeflow-kr-api"]
+
+    disabled["Vercel Git auto-deploy OFF<br/>Preview auto-deploy 제외"] -.-> frontendProd
+    disabled -.-> backendProd
+```
+
+### 기능별 흐름
+
+| 기능 | Frontend | Backend | External | DB |
+|---|---|---|---|---|
+| 지도 viewport 조회 | bbox 계산 후 `/api/stations` 호출 | bbox 검증, limit 정규화 | OpenFreeMap tiles | `stations`, `connectors` PostGIS bbox query |
+| typed search | `/api/search/chargers` 호출 | command validation, place resolver, 필터링 | 없음 | bbox prefilter |
+| free-text chat | `/api/search/chargers/nl` 호출 | OpenAI parser fallback 포함, resolver, clarification 처리 | OpenAI Responses API | bbox prefilter |
+| route planner | deterministic fixture polyline 선택 | route corridor bbox 계산, 충전 후보 점수화 | 없음 | route 주변 station fetch |
+| 지도 렌더 | deck.gl `ScatterplotLayer`, `PathLayer` | 없음 | MapLibre/OpenFreeMap | 없음 |
 
 관련 문서:
 
