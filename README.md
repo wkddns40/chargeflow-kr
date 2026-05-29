@@ -52,9 +52,10 @@ VITE_API_BASE_URL=https://chargeflow-kr-api.vercel.app
 |---|---|
 | PostGIS viewport query | 현재 지도 bbox 기준으로 충전소를 가져옵니다. 7k fixture 전체를 프론트 bundle에 넣지 않고 `/api/stations?bbox=...&limit=...`로 조회합니다. |
 | 지도 시각화 | React, MapLibre, deck.gl `ScatterplotLayer`로 충전소 상태와 출력 규모를 지도 위에 렌더링합니다. |
-| 자연어형 검색 보조 | `POST /api/search/chargers`가 장소, 반경, 출력, 상태, 커넥터 조건을 검증된 명령으로 받아 후보 충전소를 반환합니다. |
-| 경로 기반 충전 계획 | `POST /api/routes/charging-plan`이 route polyline, 차량 프로필, 제약 조건을 받아 충전 후보를 점수화합니다. |
-| 데이터 신선도 메타데이터 | availability snapshot source, snapshot date, freshness label을 API 응답에 포함합니다. |
+| 명령형 충전소 검색 | `POST /api/search/chargers`가 장소, 반경, 출력, 상태, 커넥터 조건을 검증된 command로 받아 후보 충전소를 반환합니다. |
+| 자유 채팅 검색 | `POST /api/search/chargers/nl`이 자연어를 OpenAI Responses API 또는 deterministic fallback으로 command로 변환한 뒤 검색합니다. |
+| 경로 기반 충전 계획 | frontend deterministic fixture의 route polyline을 `POST /api/routes/charging-plan`으로 보내고, backend가 route corridor 주변 충전 후보를 점수화합니다. 외부 route API나 임의 polyline 생성은 사용하지 않습니다. |
+| API 메타데이터 | `/api/stations`는 `count`/`limit`/`source`, search는 `data_freshness`/`source`/`result_limit`, route planner는 `limitations`와 조건부 `snapshot_date`/`freshness_label`을 반환합니다. |
 | 배포 분리 | Vercel frontend와 Vercel FastAPI backend를 분리하고, backend만 DB credentials를 소유합니다. |
 
 ## 기술 스택
@@ -66,7 +67,7 @@ VITE_API_BASE_URL=https://chargeflow-kr-api.vercel.app
 | 데이터 패칭 | TanStack Query, viewport-aware API client |
 | 백엔드 | FastAPI, Pydantic Settings, psycopg 3 |
 | 데이터베이스 | Supabase Postgres + PostGIS |
-| 검색/계획 로직 | local command schema, geocoding helper, route corridor, LangGraph route planner |
+| 검색/계획 로직 | local command schema, OpenAI structured parser, DB-backed place resolver, route corridor, LangGraph route planner |
 | 테스트 | Vitest 4, pytest 9, FastAPI TestClient |
 | CI/CD | GitHub Actions, Vercel production deployments |
 | 호스팅 | Vercel frontend, Vercel Python serverless API |
@@ -120,7 +121,7 @@ flowchart TD
 
 관련 문서:
 
-- [아키텍처 개요](docs/ARCHITECTURE.md)
+- [아키텍처 메모](docs/ARCHITECTURE.md) - 일부 목표 경로와 과거 MVP 메모를 포함합니다. 최신 런타임 구조는 이 README의 아키텍처 섹션을 기준으로 봅니다.
 - [DB-backed demo deployment](docs/demo-db-backed-deployment.md)
 - [EV-STATION 마이그레이션](docs/MIGRATION_FROM_EV_STATION.md)
 - [Phase 6A scale map](docs/phase-6a-scale-map.md)
@@ -228,7 +229,8 @@ chargeflow-kr/
 ## 데이터와 배포
 
 - 프론트엔드는 synthetic 7k fixture를 직접 bundle하지 않습니다.
-- Supabase PostGIS의 `stations`, `connectors`, `status_events` 테이블이 demo API source입니다.
+- Supabase PostGIS의 `stations`, `connectors`, `status_events`가 충전소/상태 demo API source입니다.
+- `places`, `place_aliases`는 typed search와 free-text chat의 DB-backed place resolver source입니다.
 - Vercel frontend는 `VITE_API_BASE_URL`로 FastAPI backend origin만 참조합니다.
 - CORS origin은 production frontend인 `https://chargeflow-kr.vercel.app`로 제한됩니다.
 
